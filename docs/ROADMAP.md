@@ -29,4 +29,14 @@ each policy entry in the table itself, not just here.
 - **Disability-based leave (Egypt).** Egypt's 2025 law grants 45 days to employees with
   disabilities. Not modelled: there is no disability-status field on the employee record, and
   adding one for a single country-specific tier is deferred until a workflow needs it.
-- **Public holiday calendars.** Belongs to the working-day calendar work, not entitlement rules.
+- **Moveable public holidays.** `app/domain/calendar.toml` encodes only fixed Gregorian-date
+  holidays confirmed by a source (KSA Founding Day and National Day, UAE New Year's Day, Egypt
+  Labour Day, Jordan New Year's Day / Labour Day / Christmas Day). Eid al-Fitr, Eid al-Adha,
+  Islamic New Year, and the Prophet's Birthday are excluded rather than estimated: they follow
+  moon sighting, and secondary sources for a specific year's Gregorian date are not reliable
+  enough to encode as fact. A production system would source these from an official Hijri
+  calendar feed per country, per year.
+- **UAE weekend is a convention, not a universal rule.** The UAE's federal government moved to a
+  Saturday-Sunday weekend on 2022-01-01; most large private employers followed, but private
+  companies were not required to. `calendar.toml` encodes Sat-Sun as the dominant convention for
+  this table, not as a claim that every UAE employer observes it.
