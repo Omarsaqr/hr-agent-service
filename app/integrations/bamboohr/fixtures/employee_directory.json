@@ -1,0 +1,26 @@
+{
+  "employees": [
+    {
+      "id": "142",
+      "firstName": "Sara",
+      "lastName": "Ahmed",
+      "country": "Saudi Arabia",
+      "hireDate": "2021-11-01",
+      "birthDate": "1990-06-15",
+      "status": "Active",
+      "mobilePhone": "+966500000001",
+      "reportsToId": "88"
+    },
+    {
+      "id": "88",
+      "firstName": "Omar",
+      "lastName": "Khalid",
+      "country": "Saudi Arabia",
+      "hireDate": "2015-01-01",
+      "birthDate": "1980-02-10",
+      "status": "Active",
+      "mobilePhone": "+966500000099",
+      "reportsToId": null
+    }
+  ]
+}

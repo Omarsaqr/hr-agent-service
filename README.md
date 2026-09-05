@@ -17,3 +17,16 @@ built out. This file grows into the full walkthrough as those pieces land.
     make dev     # run the API with reload
     make test    # run the test suite
     make lint    # ruff + mypy
+
+## Integration verification
+
+`BambooHRAdapter` (`app/integrations/bamboohr/`) is verified against recorded response fixtures
+via `respx`, not a live BambooHR account. A BambooHR sandbox requires an interactive trial signup
+and email verification with no self-serve API-only path, which wasn't pursued further within this
+project's time budget. Field mappings and the retry policy are covered by
+`tests/contract/test_bamboohr_adapter.py` and `test_bamboohr_retry.py` against fixtures in
+`app/integrations/bamboohr/fixtures/`, built from BambooHR's published API documentation. The
+in-memory adapter (`InMemoryHRISAdapter`) is what tools and tests are wired against today, so
+everything continues to run with zero external credentials; the `HRIS_DRIVER` environment-variable
+switch that selects between the two adapters lands with the tool layer that first consumes it,
+rather than being built ahead of anything that uses it.

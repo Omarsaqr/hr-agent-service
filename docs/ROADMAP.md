@@ -40,3 +40,16 @@ each policy entry in the table itself, not just here.
   Saturday-Sunday weekend on 2022-01-01; most large private employers followed, but private
   companies were not required to. `calendar.toml` encodes Sat-Sun as the dominant convention for
   this table, not as a claim that every UAE employer observes it.
+
+## BambooHR adapter endpoint confidence
+
+Two of `BambooHRAdapter`'s seven `HRISPort` methods sit on endpoints confirmed against BambooHR's
+published API documentation: employee lookup and the time-off-requests query (field names,
+auth convention, and query parameters all checked directly, not recalled). `create_time_off_request`
+and `find_employee_by_phone` (via the directory endpoint) follow the same confirmed patterns.
+`decide_time_off_request` (a status-change PUT) and `list_pending_approvals` (filtering all pending
+requests by the requester's `reportsToId`, since no per-manager endpoint is documented) are built
+from BambooHR's general REST conventions rather than a confirmed reference for those two specific
+endpoints, since no live account was available to verify against (see the README's Integration
+verification section). Both are covered by contract tests against the shape they're expected to
+return; that shape itself is the part a live account would need to confirm before production.
