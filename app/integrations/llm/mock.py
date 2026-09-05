@@ -1,4 +1,5 @@
 import re
+import uuid
 from typing import Any
 
 from app.core.i18n import detect_script, resolve_language
@@ -127,7 +128,15 @@ class MockLLMAdapter:
 
 
 def _call(name: str, arguments: dict[str, Any]) -> Message:
-    call = ToolCall(id=f"mock-{name}", name=name, arguments=arguments)
+    # A fresh id per invocation, not a fixed f"mock-{name}" -- that
+    # string was found (via tests/e2e/test_leave_workflow.py) to make
+    # ToolContext.idempotency_key() collide across *different* logical
+    # requests from the same employee (e.g. two separate leave requests
+    # in two different conversations), since it derives the key from
+    # this id. A real model's tool-call ids are unique per call for the
+    # same reason; the mock needs to match that property, not just its
+    # interface.
+    call = ToolCall(id=f"mock-{name}-{uuid.uuid4().hex[:12]}", name=name, arguments=arguments)
     return Message(role="assistant", text=None, tool_calls=[call])
 
 

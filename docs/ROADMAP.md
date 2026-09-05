@@ -413,3 +413,58 @@ file and that the JSON shape the page's `fetch()` call depends on (`{session_id,
 endpoint actually returns. What wasn't checked: that the DOM actually updates correctly on screen,
 that CSS renders as intended, or that a real click-through conversation looks right. Before relying
 on this for a live demo, open it in an actual browser first.
+
+## End-to-end conversation tests found real bugs neither unit nor runtime-level tests could
+
+`tests/e2e/` drives both named workflows through the real `POST /chat` endpoint
+(`fastapi.testclient.TestClient` against the actual `app`, not `run_chat_turn` called directly) --
+leave balance through preview, confirm, and a second manager's approval in `test_leave_workflow.py`;
+check-in through team summary and missing-check-in detection in `test_checkin_workflow.py`; knowledge
+Q&A and gratuity as a lighter third file. `tests/e2e/conftest.py`'s `e2e` fixture swaps fresh
+`InMemoryHRISAdapter`/
+`InMemorySheetAdapter` instances into `deps.py`'s process-global caches via `monkeypatch.setitem`
+(restored automatically after each test) -- the real app resolves ports by settings value, not by
+which fixture asked, so this is what makes seeding realistic data into *the actual running app*
+possible without a live vendor.
+
+The first two bugs below were only reachable through this specific combination (the real HTTP
+endpoint, the real process-global singletons, actual wall-clock time) -- every earlier test level was
+too isolated to trigger either one, which is the actual argument for building this layer at all, not
+just a checkbox for "e2e tests exist." The third was a direct side effect of fixing the first.
+
+- **SQLite connections reused across threads.** `NonceStore`/`IdempotencyStore`/`AuditLog`/`GapLog`
+  are process-lifetime singletons (`app/deps.py`) holding one `sqlite3.Connection` each, opened on
+  whichever thread first calls the relevant `get_*()`. `fastapi.testclient.TestClient` bridges sync
+  test code into the async app through an `anyio` background-thread portal, and a second `TestClient`
+  instance (or, potentially, a real ASGI server's own thread pool) can dispatch a later request on a
+  *different* thread than the one that opened the connection -- sqlite3 refuses this by default:
+  `SQLite objects created in a thread can only be used in that same thread`. The actual exception was
+  being silently swallowed by `submit_leave_request`'s bare `except Exception: return
+  ToolError(UPSTREAM_UNAVAILABLE)`, with no logging at all underneath it -- finding the real cause
+  took a temporary `traceback.print_exc()` inserted by hand, which is itself the evidence that this
+  catch needed a `logger.exception(...)` call it didn't have. Fixed both: `app/core/db.py` now opens
+  every connection with `check_same_thread=False` (safe here because every access is already
+  sequential -- this only disables Python's same-thread check, not SQLite's own locking), and the
+  outer `except Exception` blocks in `submit_leave_request`, `decide_leave_request`, and
+  `submit_daily_checkin` now log the real exception before returning the generic response.
+- **A write and a read disagreed about what day "today" is.** `submit_daily_checkin` (commit 15)
+  deliberately converts UTC to `Asia/Riyadh` before taking `.date()`, so a check-in submitted late in
+  the UTC evening is correctly filed under the *next* Riyadh calendar day. `app/api/chat.py`'s
+  `as_of` for every read tool (`list_missing_checkins`, `get_team_summary`, `calculate_gratuity`, the
+  leave tools) was computed as naive `datetime.now(UTC).date()` -- a different value from the write's
+  Riyadh-based date for roughly three hours of every real day (UTC is behind Riyadh by 3 hours, so
+  there's a daily window where it's already tomorrow in Riyadh but still today in UTC). This wasn't a
+  hypothetical: it reproduced immediately, live, the first time `test_checkin_workflow.py` ran,
+  because the actual wall-clock time during this build happened to fall inside that window -- a
+  just-submitted check-in was reported as missing. Fixed by extracting the shared logic both call
+  sites need into `app/core/company_time.py` (`COMPANY_TIMEZONE`, `today_in_company_timezone`) and
+  using it consistently in `chat.py`, `checkins.py`, and `scheduler.py` (which had the same latent gap
+  for the Iqama scan, far less consequential against a 90-day threshold but the same category of bug)
+  rather than leaving three private, easily-diverging copies of the same timezone constant.
+- **The mock's tool-call ids weren't actually unique.** A side effect of chasing the first bug:
+  `MockLLMAdapter._call()` gave every invocation of the same tool the identical id
+  (`f"mock-{name}"`), and `ToolContext.idempotency_key()` derives its key from that id. Two genuinely
+  different leave requests from the same employee -- in two different conversations, weeks apart --
+  would collide on the same idempotency key and the second would be wrongly refused as
+  `IDEMPOTENCY_KEY_REUSED`. A real model's tool-call ids are unique per call; the mock needed to match
+  that property, not just its interface. Fixed by appending a fresh `uuid.uuid4()` suffix per call.

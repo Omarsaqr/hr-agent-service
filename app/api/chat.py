@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.agent.runtime import run_chat_turn
 from app.agent.tools import ChatDeps
 from app.config import Settings
+from app.core.company_time import today_in_company_timezone
 from app.deps import (
     get_audit_log,
     get_dashboard_port,
@@ -59,14 +60,20 @@ async def chat(payload: ChatRequest, http_request: Request) -> ChatResponse:
         gap_log=get_gap_log(),
     )
 
+    now = datetime.now(UTC)
     reply = await run_chat_turn(
         payload.message,
         session.history,
         llm=get_llm_port(settings),
         deps=deps,
         acting_employee_id=payload.employee_id,
-        now=datetime.now(UTC),
-        as_of=datetime.now(UTC).date(),
+        now=now,
+        # Company-local, not naive UTC: a write (submit_daily_checkin)
+        # already keys "today" off Asia/Riyadh, and a read computed off
+        # a different calendar day would silently disagree with it for
+        # the few hours a day the two are out of sync -- caught live by
+        # tests/e2e/test_checkin_workflow.py. See docs/ROADMAP.md.
+        as_of=today_in_company_timezone(now),
     )
 
     return ChatResponse(session_id=session_id, reply=reply)

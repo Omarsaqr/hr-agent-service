@@ -1,8 +1,9 @@
+import logging
 from datetime import date, datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from app.core.audit import AuditLog
+from app.core.company_time import today_in_company_timezone
 from app.core.errors import ToolError, employee_not_found
 from app.core.idempotency import IdempotencyStore, compute_request_fingerprint
 from app.domain.checkins import (
@@ -16,11 +17,7 @@ from app.domain.checkins import (
 from app.domain.models import CheckinRecord
 from app.integrations.ports import DashboardPort, HRISPort
 
-# The company's operating timezone, not the server's or the caller's --
-# "today" for a check-in is a business-calendar question, decided once,
-# here, rather than left to whatever timezone the request happened to
-# arrive in.
-_COMPANY_TIMEZONE = ZoneInfo("Asia/Riyadh")
+_logger = logging.getLogger("app.tools.checkins")
 
 
 async def submit_daily_checkin(
@@ -58,7 +55,7 @@ async def submit_daily_checkin(
             "rating": rating,
         },
     )
-    checkin_date = now.astimezone(_COMPANY_TIMEZONE).date()
+    checkin_date = today_in_company_timezone(now)
 
     async def do_submit() -> dict[str, Any]:
         checkin = CheckinRecord(
@@ -100,6 +97,7 @@ async def submit_daily_checkin(
     try:
         return await idempotency_store.run(idempotency_key, fingerprint, now, do_submit)
     except Exception:
+        _logger.exception("submit_daily_checkin failed")
         return ToolError(
             code="UPSTREAM_UNAVAILABLE",
             message_en="I couldn't reach the dashboard to record this check-in.",

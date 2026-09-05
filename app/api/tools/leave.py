@@ -31,6 +31,7 @@ from app.integrations.ports import HRISPort
 
 _SUPPORTED_LEAVE_TYPES = {"annual"}
 _security_logger = logging.getLogger("app.security")
+_logger = logging.getLogger("app.tools.leave")
 
 
 async def resolve_approver(employee_id: str, as_of: date, hris: HRISPort) -> Employee | None:
@@ -434,6 +435,11 @@ async def submit_leave_request(
     except Exception:
         # The audit record for this failure is already written above,
         # inside do_submit, where the employee id is actually in scope.
+        # Logged here too -- this catch previously had no diagnostic
+        # trail at all, which is exactly why a real bug underneath it
+        # (sqlite cross-thread reuse, see docs/ROADMAP.md) took a
+        # temporary print statement to even find.
+        _logger.exception("submit_leave_request failed")
         return ToolError(
             code="UPSTREAM_UNAVAILABLE",
             message_en="I couldn't reach the HR system to submit this request.",
@@ -502,6 +508,7 @@ async def decide_leave_request(
     try:
         return await idempotency_store.run(idempotency_key, fingerprint, now, do_decide)
     except Exception:
+        _logger.exception("decide_leave_request failed")
         audit_log.record(
             actor_id=decider_employee_id,
             action="decide_leave_request",
