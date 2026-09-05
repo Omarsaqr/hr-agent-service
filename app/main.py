@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.chat import router as chat_router
+from app.api.web import router as web_router
 from app.config import Settings
 from app.core import db
 from app.core.iqama_alerts import IqamaAlertLog
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     install_request_logging(app)
     app.include_router(chat_router)
+    app.include_router(web_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

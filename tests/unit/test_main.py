@@ -47,3 +47,12 @@ def test_chat_reuses_history_across_calls_with_the_same_session_id() -> None:
     ).json()
 
     assert second["session_id"] == session_id
+
+
+def test_root_serves_the_web_portal_page() -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "HR Assistant" in response.text
+    assert "/chat" in response.text

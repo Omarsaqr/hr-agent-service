@@ -391,3 +391,25 @@ falls through to `answer_hr_question` for anything else. This is deliberately no
 smarter than it is -- turning free-form English/Arabic into the right tool call is the actual
 reasoning job a real model does, and scripts/seed_demo.py and the end-to-end tests are written to the
 phrasings the mock actually supports, not the other way around.
+
+## Web portal: one static file, no framework, no build step -- and no real browser to click through
+
+`app/web/index.html` (served at `GET /` by `app/api/web.py`) is exactly what it says: one
+self-contained HTML file, inline CSS and JS, no React/build tooling, no separate static-asset
+pipeline. It POSTs to `/chat` with `{employee_id, message, session_id}` and renders the reply,
+carrying `session_id` forward so a preview-then-confirm leave request works across two messages the
+same way `test_agent_runtime.py` already proves it does at the runtime level. Each message bubble's
+`dir` attribute is set per-message (not once for the whole page) by testing for Arabic script
+client-side, so a mixed English/Arabic conversation renders each bubble's text in its own correct
+direction -- the same mixed-direction pattern real chat apps use. The Arabic-detection regex
+(`[؀-ۿ]`) is copied verbatim from `app/core/i18n.py`'s `_ARABIC_SCRIPT_RE` rather than approximated,
+so the client's guess about a message's language can't silently disagree with the server's.
+
+**What was actually verified, and what wasn't.** There's no browser in this environment, so nothing
+here has been clicked through end to end. What was checked: the inline `<script>` block was
+extracted and syntax-validated with Node (`node --check`); a real `uvicorn` process was started and
+`GET /` / `POST /chat` were hit directly, confirming the served HTML is byte-identical to the source
+file and that the JSON shape the page's `fetch()` call depends on (`{session_id, reply}`) is what the
+endpoint actually returns. What wasn't checked: that the DOM actually updates correctly on screen,
+that CSS renders as intended, or that a real click-through conversation looks right. Before relying
+on this for a live demo, open it in an actual browser first.
