@@ -46,6 +46,42 @@ pending approvals and act on breaches -- no scheduler exists yet (APScheduler la
 expiry job). Until then, SLA breach is visible to whoever calls `list_pending_approvals`, not
 proactively acted on.
 
+## BM25 retrieval on a small corpus: a real, demonstrated precision limit
+
+`app/knowledge/store.py` retrieves by BM25 over per-section chunks (~56 chunks total across 10
+topics x 2 languages). On a corpus this small, BM25's length normalization can make a short,
+tangentially-relevant section outscore a longer, genuinely on-topic one, because term frequency is
+judged relative to document length: a 16-word section that happens to use two query words scores
+higher than a 40-word section that uses them once. This isn't a hypothetical -- it's how
+`transfer_request.en.md`'s "Effect on Leave and Tenure" section was originally worded (it mentioned
+"annual leave" incidentally, in a section about transfers), and it briefly outscored the actual
+`annual_leave_policy` document for the query "What is the annual leave policy?" during this
+corpus's own test-writing. That specific collision was fixed by rewording the offending sentence
+(`transfer_request.{en,ar}.md`), which is a legitimate fix for hand-authored mock content but not a
+general solution -- the next accidental collision in a larger, less curated corpus would not be
+caught by rereading every section.
+
+Stopword filtering (`_STOPWORDS` in `store.py`) and an empirically-set match threshold
+(`_MATCH_THRESHOLD = 2.0` in `app/api/tools/knowledge.py`) narrow the gap but don't close it. A real
+implementation at HR's actual document scale should re-evaluate retrieval quality with a larger,
+representative corpus before trusting BM25 alone -- likely candidates are a cross-encoder reranker
+over BM25's top-N, or a hybrid BM25 + embedding score, neither of which is justified for ~56 mock
+chunks.
+
+## Cross-language section pairing is positional, not semantic
+
+`KnowledgeStore.get_chunk` pairs an English chunk with its Arabic counterpart by `(topic,
+section_index, language)` -- the Nth section of `topic.en.md` is assumed to be the translation of
+the Nth section of `topic.ar.md`. Section titles can't be the join key: they're written in each
+file's own language ("What It Is" vs. "ما هي"), so a title string never matches across languages.
+Positional pairing holds for this corpus because every topic's `.en.md` and `.ar.md` were authored
+as parallel translations with the same section count and order (verified for all 10 topics as part
+of this fix). It would silently mispair if a future edit added or reordered a section in one
+language's file without mirroring the change in the other -- there's no check that enforces
+parallel structure across the two files. A per-section stable key (e.g., a slug in the section
+heading, `## what-it-is: What It Is`) would remove that fragility; not done here since the corpus is
+small enough to keep the two files in sync by hand.
+
 ## Deviations from the task brief
 
 The task brief specifies leave-entitlement numbers per country. Every number in
