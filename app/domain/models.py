@@ -1,0 +1,56 @@
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Literal
+
+EmployeeStatus = Literal["active", "probation", "terminated"]
+TimeOffStatus = Literal["pending", "approved", "rejected", "cancelled"]
+Language = Literal["en", "ar"]
+
+
+@dataclass(frozen=True, slots=True)
+class Employee:
+    employee_id: str
+    full_name: str
+    country: str
+    employment_start_date: date
+    status: EmployeeStatus
+    manager_id: str | None = None
+    phone_number: str | None = None
+    preferred_language: Language | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TimeOffRequestDraft:
+    employee_id: str
+    leave_type: str
+    start_date: date
+    end_date: date
+    # Computed by domain/calendar.py before the draft is built, not by the
+    # adapter -- adapters store what they're given, they don't compute it.
+    working_days: float
+
+
+@dataclass(frozen=True, slots=True)
+class TimeOffRequest:
+    request_id: str
+    employee_id: str
+    leave_type: str
+    start_date: date
+    end_date: date
+    working_days: float
+    status: TimeOffStatus
+    requested_at: datetime
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CheckinRecord:
+    employee_id: str
+    checkin_date: date
+    accomplishments: str
+    blockers: str
+    rating: int
+    submitted_by: str
+    submitted_at: datetime
+    idempotency_key: str
