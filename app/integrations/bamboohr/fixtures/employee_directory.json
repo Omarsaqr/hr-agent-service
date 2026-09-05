@@ -2,25 +2,21 @@
   "employees": [
     {
       "id": "142",
+      "displayName": "Sara Ahmed",
       "firstName": "Sara",
       "lastName": "Ahmed",
-      "country": "Saudi Arabia",
-      "hireDate": "2021-11-01",
-      "birthDate": "1990-06-15",
-      "status": "Active",
+      "jobTitle": "Accountant",
       "mobilePhone": "+966500000001",
-      "reportsToId": "88"
+      "supervisor": "Omar Khalid"
     },
     {
       "id": "88",
+      "displayName": "Omar Khalid",
       "firstName": "Omar",
       "lastName": "Khalid",
-      "country": "Saudi Arabia",
-      "hireDate": "2015-01-01",
-      "birthDate": "1980-02-10",
-      "status": "Active",
+      "jobTitle": "Finance Manager",
       "mobilePhone": "+966500000099",
-      "reportsToId": null
+      "supervisor": null
     }
   ]
 }

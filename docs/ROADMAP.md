@@ -41,15 +41,49 @@ each policy entry in the table itself, not just here.
   companies were not required to. `calendar.toml` encodes Sat-Sun as the dominant convention for
   this table, not as a claim that every UAE employer observes it.
 
-## BambooHR adapter endpoint confidence
+## BambooHR adapter: verified against a live trial account
 
-Two of `BambooHRAdapter`'s seven `HRISPort` methods sit on endpoints confirmed against BambooHR's
-published API documentation: employee lookup and the time-off-requests query (field names,
-auth convention, and query parameters all checked directly, not recalled). `create_time_off_request`
-and `find_employee_by_phone` (via the directory endpoint) follow the same confirmed patterns.
-`decide_time_off_request` (a status-change PUT) and `list_pending_approvals` (filtering all pending
-requests by the requester's `reportsToId`, since no per-manager endpoint is documented) are built
-from BambooHR's general REST conventions rather than a confirmed reference for those two specific
-endpoints, since no live account was available to verify against (see the README's Integration
-verification section). Both are covered by contract tests against the shape they're expected to
-return; that shape itself is the part a live account would need to confirm before production.
+All seven `HRISPort` methods were exercised against a real BambooHR trial account (subdomain
+`blackoctant`), reads and writes both, not inferred from documentation or REST convention. Several
+things a fixture-only build would not have caught:
+
+- **The directory endpoint defaults to XML.** `/employees/directory` returns `text/xml` unless the
+  request sends `Accept: application/json` explicitly. The client never sent it. Every directory
+  call would have failed outside a live account -- fixtures encode the JSON shape either way and
+  can't fail this way, since respx mocks return whatever the test tells them to.
+- **`reportsToId` is not a real field.** The correct field alias, per BambooHR's own
+  `/meta/fields`, is `reportsTo` -- and it returns the manager's display name, not an id, no matter
+  which employee endpoint asks for it. There is no id-based manager reference available via the
+  fields API at all. `Employee.manager_id` is `None` for every BambooHR-backed employee as a
+  result; `list_pending_approvals` resolves the target manager's own name via `get_employee` and
+  matches it against each directory entry's `supervisor` string, since that name is the only
+  manager relationship BambooHR actually exposes.
+- **The directory's field set is much thinner than `get_employee`'s** -- no `hireDate`,
+  `birthDate`, `status`, or `country`. `find_employee_by_phone` uses the directory only to resolve
+  a phone number to an id, then makes a second `get_employee` call for the full record, rather than
+  building a partial `Employee` with fields the directory can't supply.
+- **Time-off type names are per-tenant, not a BambooHR-wide vocabulary.** This tenant calls its
+  types "Annual Leave/Holiday" and "Sick Leave" (not "Sick" -- an initial guess at this name was
+  wrong and would have passed silently without the validation below). The mapping from domain leave
+  types to tenant-specific names lives in `app/integrations/bamboohr/leave_type_mapping.toml`, and
+  `BambooHRAdapter` validates every mapped name against `/meta/time_off/types` on first use, raising
+  `LeaveTypeMappingError` if a mapped name doesn't exist on the tenant. Unvalidated, a wrong mapping
+  fails silently as "zero days taken" rather than as an error -- the one outcome worse than a
+  startup-time exception.
+- **`create_time_off_request`'s real payload uses `timeOffTypeId` (an id) and a nested
+  `amount: {unit, amount}`,** not the inferred `timeOffTypeName` / flat `amount`. The inferred shape
+  returned `400 Bad Request` with an empty body against the live account; the corrected shape was
+  confirmed by successfully creating and then cancelling a real (test) request.
+- **BambooHR recomputes the day count itself.** A live create request submitted with `amount: 2`
+  came back recorded as `1` day, once BambooHR applied its own configured work schedule to the date
+  range. `_map_time_off_request` reports whatever the response says, not what was sent -- but this
+  means our `domain/calendar.py` working-day count and BambooHR's own can diverge for the same
+  request. Worth flagging for whoever builds `preview_leave_request`: the previewed number and the
+  number BambooHR ultimately records are not guaranteed to match.
+- **`decide_time_off_request`'s status-change endpoint returns `200` with an empty body**, not the
+  updated request. There is also no per-request GET. The adapter makes a follow-up company-wide
+  `get_all_time_off_requests` call and finds the matching id, rather than returning a request
+  object assembled from data it doesn't actually have.
+- **BambooHR blocks self-approval.** Attempting to approve the account owner's own pending request
+  returned `403 Forbidden`. Not handled specially here (it surfaces as an `httpx.HTTPStatusError`)
+  but worth knowing before assuming any employee can decide any request they're authorised for.

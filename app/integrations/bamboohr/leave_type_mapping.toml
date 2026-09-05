@@ -1,0 +1,8 @@
+# Per-tenant: this is how *this* BambooHR account names its time-off
+# types, not a universal BambooHR vocabulary. Only domain leave types
+# that countries.toml actually has a rule for are mapped -- "sick" is
+# KSA-only today (see docs/ROADMAP.md), but the mapping key itself is
+# not country-scoped since one BambooHR tenant serves every country.
+[leave_type_mapping]
+annual = "Annual Leave/Holiday"
+sick = "Sick Leave"

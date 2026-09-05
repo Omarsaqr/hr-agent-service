@@ -4,13 +4,13 @@
     "employeeId": "142",
     "start": "2026-06-01",
     "end": "2026-06-05",
-    "created": "2026-05-20T09:00:00",
+    "created": "2026-05-20",
     "status": {
       "status": "approved",
-      "lastChanged": "2026-05-21T10:00:00",
+      "lastChanged": "2026-05-21",
       "lastChangedByUserId": "88"
     },
-    "type": {"id": "1", "name": "annual"},
+    "type": {"id": "78", "name": "Annual Leave/Holiday"},
     "amount": {"unit": "days", "amount": "5"}
   },
   {
@@ -18,13 +18,13 @@
     "employeeId": "142",
     "start": "2026-08-01",
     "end": "2026-08-02",
-    "created": "2026-07-15T09:00:00",
+    "created": "2026-07-15",
     "status": {
       "status": "requested",
-      "lastChanged": "2026-07-15T09:00:00",
+      "lastChanged": "2026-07-15",
       "lastChangedByUserId": "142"
     },
-    "type": {"id": "1", "name": "annual"},
+    "type": {"id": "78", "name": "Annual Leave/Holiday"},
     "amount": {"unit": "days", "amount": "2"}
   }
 ]

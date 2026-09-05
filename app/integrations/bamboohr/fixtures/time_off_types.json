@@ -1,0 +1,7 @@
+{
+  "timeOffTypes": [
+    {"id": "78", "name": "Annual Leave/Holiday", "units": "days"},
+    {"id": "79", "name": "Sick Leave", "units": "days"},
+    {"id": "77", "name": "Bereavement", "units": "days"}
+  ]
+}

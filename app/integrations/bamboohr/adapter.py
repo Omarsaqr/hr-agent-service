@@ -10,6 +10,11 @@ from app.domain.models import (
 )
 from app.integrations.bamboohr.cache import TTLCache
 from app.integrations.bamboohr.client import BambooHRClient
+from app.integrations.bamboohr.leave_types import (
+    BAMBOOHR_NAME_TO_DOMAIN_TYPE,
+    LEAVE_TYPE_MAPPING,
+    validate_leave_type_mapping,
+)
 from app.integrations.ports import AmbiguousEmployeeError
 
 # BambooHR reports work country by name, not the codes countries.toml keys
@@ -53,6 +58,7 @@ class BambooHRAdapter:
         # is harmless, a stale balance tells someone they have days
         # they've already used.
         self._employee_cache: TTLCache[Employee | None] = TTLCache(_EMPLOYEE_CACHE_TTL_SECONDS)
+        self._time_off_types: list[dict[str, Any]] | None = None
 
     async def get_employee(self, employee_id: str) -> Employee | None:
         hit, cached = self._employee_cache.get(f"id:{employee_id}")
@@ -69,36 +75,63 @@ class BambooHRAdapter:
         if hit:
             return cached
 
+        # The directory has mobilePhone but not hireDate/birthDate/status/
+        # country -- a directory-only Employee would carry silent Nones
+        # for required-looking fields. Resolve the id here, then let
+        # get_employee (already cached) fetch the full record.
         directory = await self._client.get_employee_directory()
-        matches = [
-            _map_employee(raw) for raw in directory if raw.get("mobilePhone") == phone_number
-        ]
-        if len(matches) > 1:
-            raise AmbiguousEmployeeError(phone_number, [e.employee_id for e in matches])
+        matching_ids = [raw["id"] for raw in directory if raw.get("mobilePhone") == phone_number]
+        if len(matching_ids) > 1:
+            raise AmbiguousEmployeeError(phone_number, matching_ids)
 
-        employee = matches[0] if matches else None
+        employee = await self.get_employee(matching_ids[0]) if matching_ids else None
         self._employee_cache.set(f"phone:{phone_number}", employee)
         return employee
 
     async def get_time_off_taken(self, employee_id: str, leave_type: str, since: date) -> float:
+        bamboohr_type_name = await self._resolve_bamboohr_leave_type_name(leave_type)
         raw_requests = await self._client.get_time_off_requests(
             employee_id, start=since.isoformat(), end=date.max.isoformat()
         )
         return sum(
             float(raw["amount"]["amount"])
             for raw in raw_requests
-            if raw["status"]["status"] == "approved" and raw["type"]["name"] == leave_type
+            if raw["status"]["status"] == "approved" and raw["type"]["name"] == bamboohr_type_name
         )
 
     async def create_time_off_request(self, draft: TimeOffRequestDraft) -> TimeOffRequest:
+        type_id = await self._resolve_bamboohr_leave_type_id(draft.leave_type)
         payload = {
+            "status": "requested",
             "start": draft.start_date.isoformat(),
             "end": draft.end_date.isoformat(),
-            "timeOffTypeName": draft.leave_type,
-            "amount": draft.working_days,
+            "timeOffTypeId": type_id,
+            # BambooHR independently recomputes this against its own
+            # configured schedule (confirmed live: a 2-day request came
+            # back as 1 day once its own calendar was applied) -- what we
+            # send is a starting point, not the number of record.
+            # _map_time_off_request reports whatever the response says,
+            # not this value.
+            "amount": {"unit": "days", "amount": str(draft.working_days)},
         }
         raw = await self._client.create_time_off_request(draft.employee_id, payload)
         return _map_time_off_request(raw)
+
+    async def _resolve_bamboohr_leave_type_name(self, domain_leave_type: str) -> str:
+        await self._get_validated_time_off_types()
+        return LEAVE_TYPE_MAPPING[domain_leave_type]
+
+    async def _resolve_bamboohr_leave_type_id(self, domain_leave_type: str) -> str:
+        bamboohr_name = await self._resolve_bamboohr_leave_type_name(domain_leave_type)
+        types = await self._get_validated_time_off_types()
+        return next(str(t["id"]) for t in types if t["name"] == bamboohr_name)
+
+    async def _get_validated_time_off_types(self) -> list[dict[str, Any]]:
+        if self._time_off_types is None:
+            types = await self._client.get_time_off_types()
+            validate_leave_type_mapping({t["name"] for t in types})
+            self._time_off_types = types
+        return self._time_off_types
 
     async def get_time_off_requests(
         self,
@@ -120,27 +153,42 @@ class BambooHRAdapter:
     async def decide_time_off_request(
         self, request_id: str, decision: Literal["approved", "rejected"], decided_by: str
     ) -> TimeOffRequest:
-        raw = await self._client.set_time_off_request_status(
+        # Confirmed live: the status-change endpoint responds 200 with an
+        # empty body, not the updated request. There is also no
+        # per-request GET, so the only way to return a real, complete
+        # TimeOffRequest (not a partial one guessed from what we already
+        # had) is a follow-up company-wide fetch.
+        await self._client.set_time_off_request_status(
             request_id, _TIME_OFF_STATUS_TO_BAMBOOHR[decision], note=None
         )
+        all_requests = await self._client.get_all_time_off_requests(
+            start=date.min.isoformat(), end=date.max.isoformat()
+        )
+        raw = next(r for r in all_requests if r["id"] == request_id)
         return _map_time_off_request(raw)
 
     async def list_pending_approvals(self, manager_id: str) -> list[TimeOffRequest]:
-        # No native "pending approvals for manager X" endpoint: pull all
-        # pending requests company-wide and filter by the requester's
-        # manager. Fine at mock scale; a real deployment at 50k employees
-        # would want this pushed server-side or paginated.
+        # No native "pending approvals for manager X" endpoint, and no
+        # id-based manager field either: the directory's only manager
+        # reference is `supervisor`, a display name. Resolve the target
+        # manager's own name via get_employee, then match that string
+        # against each directory entry -- the same shape BambooHR
+        # actually gives us, not the id-based shape assumed pre-verification.
+        manager = await self.get_employee(manager_id)
+        if manager is None:
+            return []
+
         pending_raw = await self._client.get_all_pending_requests(
             start=date.min.isoformat(), end=date.max.isoformat()
         )
         requests = [_map_time_off_request(raw) for raw in pending_raw]
 
-        reports_to_manager = set[str]()
-        for raw in await self._client.get_employee_directory():
-            if raw.get("reportsToId") == manager_id:
-                reports_to_manager.add(raw["id"])
-
-        return [r for r in requests if r.employee_id in reports_to_manager]
+        direct_report_ids = {
+            raw["id"]
+            for raw in await self._client.get_employee_directory()
+            if raw.get("supervisor") == manager.full_name
+        }
+        return [r for r in requests if r.employee_id in direct_report_ids]
 
 
 def _map_employee(raw: dict[str, Any]) -> Employee:
@@ -152,7 +200,12 @@ def _map_employee(raw: dict[str, Any]) -> Employee:
         # BambooHR's base status field has no probation concept; a real
         # integration would need a custom field or the job-info table.
         status=_EMPLOYEE_STATUS_FROM_BAMBOOHR.get(raw.get("status", ""), "terminated"),
-        manager_id=raw.get("reportsToId"),
+        # Not raw.get("reportsTo"): that field is a display name, not an
+        # id, and manager_id would be lying about what it holds if it put
+        # a name where callers expect something matching employee_id.
+        # list_pending_approvals resolves manager relationships by name
+        # directly, since that's the only thing BambooHR actually exposes.
+        manager_id=None,
         phone_number=raw.get("mobilePhone"),
         birth_date=date.fromisoformat(raw["birthDate"]) if raw.get("birthDate") else None,
     )
@@ -161,10 +214,14 @@ def _map_employee(raw: dict[str, Any]) -> Employee:
 def _map_time_off_request(raw: dict[str, Any]) -> TimeOffRequest:
     status_block = raw["status"]
     last_changed = status_block.get("lastChanged")
+    bamboohr_type_name = raw["type"]["name"]
     return TimeOffRequest(
         request_id=raw["id"],
         employee_id=raw["employeeId"],
-        leave_type=raw["type"]["name"],
+        # Falls back to the raw BambooHR name for a type with no mapping
+        # entry (e.g. Bereavement) -- there's no domain key to translate
+        # it to, so passing it through beats dropping it.
+        leave_type=BAMBOOHR_NAME_TO_DOMAIN_TYPE.get(bamboohr_type_name, bamboohr_type_name),
         start_date=date.fromisoformat(raw["start"]),
         end_date=date.fromisoformat(raw["end"]),
         working_days=float(raw["amount"]["amount"]),
