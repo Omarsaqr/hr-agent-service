@@ -17,6 +17,8 @@ class Employee:
     manager_id: str | None = None
     phone_number: str | None = None
     preferred_language: Language | None = None
+    # Needed for Egypt's age-50 alternative entitlement threshold.
+    birth_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)

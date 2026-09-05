@@ -1,0 +1,93 @@
+[KSA]
+name = "Saudi Arabia"
+
+[KSA.annual_leave]
+citation = "Saudi Labour Law (Royal Decree No. M/51), Art. 109"
+source_url = "https://alothmanlaw.sa/en/article-109/"
+last_reviewed = 2026-09-05
+
+[[KSA.annual_leave.tiers]]
+min_months = 0
+annual_days = 21
+
+[[KSA.annual_leave.tiers]]
+min_months = 60
+annual_days = 30
+
+[KSA.sick_leave]
+citation = "Saudi Labour Law (Royal Decree No. M/51), Art. 117"
+source_url = "https://www.cercli.com/resources/sick-leave-saudi-labour-law"
+last_reviewed = 2026-09-05
+
+[[KSA.sick_leave.tiers]]
+max_cumulative_days = 30
+pay_percentage = 100
+
+[[KSA.sick_leave.tiers]]
+max_cumulative_days = 90
+pay_percentage = 75
+
+[[KSA.sick_leave.tiers]]
+max_cumulative_days = 120
+pay_percentage = 0
+
+
+[UAE]
+name = "United Arab Emirates"
+
+[UAE.annual_leave]
+citation = "UAE Federal Decree-Law No. 33 of 2021 (Regulation of Labour Relations), Art. 29"
+source_url = "https://u.ae/en/information-and-services/jobs/employment-in-the-private-sector/types-of-leaves-and-entitlements-in-the-private-sector/annual-leave"
+last_reviewed = 2026-09-05
+
+[[UAE.annual_leave.tiers]]
+min_months = 0
+annual_days = 0
+
+[[UAE.annual_leave.tiers]]
+min_months = 6
+monthly_accrual_days = 2
+
+[[UAE.annual_leave.tiers]]
+min_months = 12
+annual_days = 30
+
+
+[Egypt]
+name = "Egypt"
+
+[Egypt.annual_leave]
+citation = "Egyptian Labour Law No. 14 of 2025 (annual leave provisions; specific article not confirmed in secondary sources)"
+source_url = "https://www.ey.com/en_gl/technical/tax-alerts/egypt-enacts-new-labor-law-with-changes-affecting-employers-beginning-1-september-2025"
+last_reviewed = 2026-09-05
+note = "Law No. 14 of 2025 (in force since 2025-09-01) superseded Law No. 12 of 2003 and changed this rule. Encoded here: 15 days in year one, 21 from year two, 30 after 10 years or age 50 -- consistent across EY, Lexology, and Amereller client alerts. An alternative reading in circulation (21 days after 6 months) appears to describe the superseded 2003 law. The new law also grants 45 days to employees with disabilities; not modelled here, since no disability-status field exists on the employee record."
+
+[[Egypt.annual_leave.tiers]]
+min_months = 0
+annual_days = 15
+
+[[Egypt.annual_leave.tiers]]
+min_months = 12
+annual_days = 21
+
+[[Egypt.annual_leave.tiers]]
+min_months = 120
+annual_days = 30
+min_age_alternative = 50
+
+
+[Jordan]
+name = "Jordan"
+
+[Jordan.annual_leave]
+citation = "Jordanian Labour Law No. 8 of 1996 (as amended), Art. 61(A)"
+source_url = "https://www.johud.org.jo/Portals/0/ThemePluginPro/uploads/2025/9/25/guildeline%20for%20%20employers%20in%20the%20private%20sectors%20-%20EN.pdf"
+last_reviewed = 2026-09-05
+
+[[Jordan.annual_leave.tiers]]
+min_months = 0
+annual_days = 14
+
+[[Jordan.annual_leave.tiers]]
+min_months = 60
+annual_days = 21
