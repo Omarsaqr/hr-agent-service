@@ -4,16 +4,13 @@ import hashlib
 import hmac
 import json
 import secrets
-import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.core.idempotency import NonceStore
+
 TOKEN_TTL = timedelta(minutes=15)
-# Generous margin past TOKEN_TTL -- a nonce only needs to be remembered
-# long enough that an expired-anyway token can never reach the reuse
-# check, not indefinitely.
-NONCE_RETENTION = timedelta(hours=1)
 
 
 class PreviewTokenExpiredError(Exception):
@@ -86,52 +83,13 @@ def verify(token: str, *, secret: str, now: datetime) -> dict[str, Any]:
 
 
 def verify_and_consume(
-    token: str, *, secret: str, now: datetime, nonce_store: "NonceStore"
+    token: str, *, secret: str, now: datetime, nonce_store: NonceStore
 ) -> dict[str, Any]:
     """verify() plus single-use enforcement. This is what submit calls."""
     payload = verify(token, secret=secret, now=now)
     if not nonce_store.consume(payload["nonce"], now):
         raise PreviewTokenReusedError("nonce already consumed")
     return payload
-
-
-class NonceStore:
-    """SQLite-backed record of consumed preview-token nonces.
-
-    A plain in-process set would reopen the replay window on every
-    restart; a 15-minute token's single-use guarantee should survive
-    that.
-    """
-
-    def __init__(self, connection: sqlite3.Connection) -> None:
-        self._conn = connection
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS consumed_preview_nonces (
-                nonce TEXT PRIMARY KEY,
-                consumed_at TEXT NOT NULL
-            )
-            """
-        )
-        self._conn.commit()
-
-    def consume(self, nonce: str, now: datetime) -> bool:
-        """Returns True the first time a nonce is seen, False on reuse."""
-        self._purge_expired(now)
-        try:
-            self._conn.execute(
-                "INSERT INTO consumed_preview_nonces (nonce, consumed_at) VALUES (?, ?)",
-                (nonce, now.isoformat()),
-            )
-            self._conn.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
-
-    def _purge_expired(self, now: datetime) -> None:
-        cutoff = (now - NONCE_RETENTION).isoformat()
-        self._conn.execute("DELETE FROM consumed_preview_nonces WHERE consumed_at < ?", (cutoff,))
-        self._conn.commit()
 
 
 def _canonical_json(payload: dict[str, Any]) -> bytes:

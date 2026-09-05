@@ -2,7 +2,7 @@ import httpx
 
 from app.config import Settings
 from app.core import db
-from app.core.preview_tokens import NonceStore
+from app.core.idempotency import IdempotencyStore, NonceStore
 from app.integrations.bamboohr.adapter import BambooHRAdapter
 from app.integrations.bamboohr.client import BambooHRClient
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
@@ -14,6 +14,7 @@ from app.integrations.ports import HRISPort
 # determine adapter identity gets the same singleton-per-config effect.
 _hris_port_cache: dict[tuple[str, str | None], HRISPort] = {}
 _nonce_store: NonceStore | None = None
+_idempotency_store: IdempotencyStore | None = None
 
 
 def get_hris_port(settings: Settings) -> HRISPort:
@@ -35,6 +36,13 @@ def get_nonce_store() -> NonceStore:
     if _nonce_store is None:
         _nonce_store = NonceStore(db.connect())
     return _nonce_store
+
+
+def get_idempotency_store() -> IdempotencyStore:
+    global _idempotency_store
+    if _idempotency_store is None:
+        _idempotency_store = IdempotencyStore(db.connect())
+    return _idempotency_store
 
 
 def _build_hris_port(settings: Settings) -> HRISPort:

@@ -4,8 +4,8 @@ import pytest
 
 import app.deps as deps_module
 from app.config import Settings
-from app.core.preview_tokens import NonceStore
-from app.deps import _hris_port_cache, get_hris_port, get_nonce_store
+from app.core.idempotency import IdempotencyStore, NonceStore
+from app.deps import _hris_port_cache, get_hris_port, get_idempotency_store, get_nonce_store
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
 
 
@@ -16,6 +16,7 @@ def clear_cache() -> None:
     # leak instances across cases.
     _hris_port_cache.clear()
     deps_module._nonce_store = None
+    deps_module._idempotency_store = None
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -60,3 +61,14 @@ def test_get_nonce_store_returns_the_same_instance_every_call(
 
     assert isinstance(store, NonceStore)
     assert get_nonce_store() is store
+
+
+def test_get_idempotency_store_returns_the_same_instance_every_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.db.connect", lambda: sqlite3.connect(":memory:"))
+
+    store = get_idempotency_store()
+
+    assert isinstance(store, IdempotencyStore)
+    assert get_idempotency_store() is store
