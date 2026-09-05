@@ -12,6 +12,7 @@ dependencies = [
     "google-auth>=2.34",
     "tzdata>=2024.1",
     "apscheduler>=3.10",
+    "google-genai>=2.22",
 ]
 
 [project.optional-dependencies]

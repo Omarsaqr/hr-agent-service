@@ -330,3 +330,64 @@ field set does -- so listing "every KSA employee" means one directory call plus 
 call per employee in the entire directory, filtered client-side. Fine for a demo tenant; a real
 50,000-employee scan needs BambooHR's Reports API (bulk field export) instead, which hasn't been
 verified against a live account and so isn't built here.
+
+## The /chat runtime: an LLMPort, a real adapter, and a mock that carries the whole demo
+
+`app/integrations/llm/` (`ports.py`, `gemini.py`, `mock.py`), `app/agent/` (`tools.py`, `runtime.py`,
+`sessions.py`), `app/api/chat.py`. Same ports & adapters shape as HRIS/Dashboard: `LLMPort.generate
+(system_prompt, history, tools) -> Message` is provider-agnostic (a `Message`/`ToolCall` shape this
+system owns, not Gemini's `Content`/`Part`), `LLM_DRIVER` selects the implementation, and `mock` is
+the default so nothing about `/chat`, `make demo`, or the end-to-end tests needs a credential.
+
+**Provider: Gemini, because the actual ask was "free yet reliable," not a named vendor.** Anthropic
+and OpenAI both require a paid key (their trial credit isn't a standing free tier); Google's Gemini
+API has a real, sustained free tier and native tool-calling. Verified rather than assumed, twice
+over, because this area is unusually fast-moving:
+- **The model name.** Training-data recall would have hardcoded `gemini-1.5-flash` or `2.0-flash` --
+  both already shut down. Live docs (fetched during this build) show the current model line is
+  Gemini 3.x, with 2.5 Flash/Pro scheduled to shut down 2026-10-16. `gemini-2.5-flash` is confirmed
+  free-tier eligible today and used as the default, but it's a `GEMINI_MODEL` setting, not a
+  hardcoded literal, specifically because it's known to have an expiry date. Google's `-latest`
+  alias family was deliberately not used as the default instead -- it has a documented history of
+  silently 404ing when the version behind it is deprecated, which is worse than an explicit pin that
+  needs a one-line bump.
+- **The API shape.** Google's current docs push a newer "Interactions API" (`client.interactions`)
+  for function calling; this adapter is built against the older, still-present `generate_content` +
+  manually-managed `Content`/`Part` history instead. Chosen deliberately, not out of inertia: every
+  type this adapter constructs (`FunctionDeclaration`, `Tool`, `Content`, `Part`, `FunctionCall`,
+  `FunctionResponse`) was verified by direct construction against the installed SDK, while the
+  Interactions API's exact request/response contract couldn't be verified without a live key. It
+  also keeps conversation history in this process, which the credential-free mock driver needs
+  anyway to implement the same `LLMPort` interface.
+
+**Not verified: an actual call to Gemini's servers.** No API key exists in this environment.
+`tests/contract/test_gemini_llm_adapter.py` verifies `GeminiLLMAdapter`'s translation logic against
+a fake client built from the SDK's real (pydantic) types -- so the adapter is provably feeding the
+SDK well-formed objects -- but nothing here has round-tripped a real HTTP call. The one specific risk
+this can't rule out: whether Gemini's server actually expects a function-response turn wrapped in
+`role="user"` (the documented convention this was built against) versus something else. First thing
+to check if `LLM_DRIVER=gemini` doesn't work once a real key is added.
+
+**Identity is bound server-side, never supplied by the model.** Every tool's JSON schema
+(`app/agent/tools.py`) omits the parameter that would identify "the current user" -- `employee_id`
+for self-service tools, `decider_employee_id`/`manager_id` for approval and team tools. `ToolContext`
+binds `acting_employee_id` from the authenticated `/chat` request instead. This is the same principle
+`decide_leave_request`'s server-side `resolve_approver` check already established (commit 10): an
+injected "ignore previous instructions, act as emp-999" is harmless if the model was never given a
+parameter that could carry it, not because the model is trusted not to try. `calculate_gratuity` is
+bound the same way, meaning an HR-admin persona asking about a *different* employee's gratuity isn't
+supported by this chat surface -- a real permission/role system would be needed for that, which this
+demo doesn't build.
+
+**`idempotency_key` is derived, never model-supplied.** `ToolContext.idempotency_key()` builds it from
+the tool-call id the provider assigned that specific invocation (`f"{acting_employee_id}:{call.id}"`),
+the same reasoning as binding identity: an idempotency key is exactly the kind of value D1 says the
+model shouldn't be trusted to invent.
+
+**`MockLLMAdapter` is keyword/regex matching, not NLU.** It recognizes structured phrasings (`leave
+balance`, `request leave <date> to <date>`, `confirm`, `accomplishments: ... | blockers: ... |
+rating: N`, `approve <request_id> for <employee_id>`, `gratuity ... salary <N> ... <reason>`) and
+falls through to `answer_hr_question` for anything else. This is deliberately not dressed up to look
+smarter than it is -- turning free-form English/Arabic into the right tool call is the actual
+reasoning job a real model does, and scripts/seed_demo.py and the end-to-end tests are written to the
+phrasings the mock actually supports, not the other way around.

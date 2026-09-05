@@ -39,4 +39,15 @@ class Settings(BaseSettings):
     # background scheduler thread -- opt in explicitly to see it run.
     iqama_scheduler_enabled: bool = False
 
+    # Same "memory by default" shape as the other drivers -- "mock" is a
+    # deterministic, credential-free stand-in (see
+    # app/integrations/llm/mock.py), not a placeholder that fails
+    # without a real key. gemini-2.5-flash is confirmed free-tier
+    # eligible as of this writing but is scheduled to shut down on
+    # 2026-10-16; if that's already passed, set GEMINI_MODEL to whatever
+    # Google's current free-tier Flash model is rather than editing code.
+    llm_driver: Literal["mock", "gemini"] = "mock"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
+
     model_config = SettingsConfigDict(env_file=".env")

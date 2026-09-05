@@ -8,13 +8,20 @@ from app.core.idempotency import IdempotencyStore, NonceStore
 from app.deps import (
     _dashboard_port_cache,
     _hris_port_cache,
+    _llm_port_cache,
     get_dashboard_port,
+    get_gap_log,
     get_hris_port,
     get_idempotency_store,
+    get_knowledge_store,
+    get_llm_port,
     get_nonce_store,
 )
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
+from app.integrations.llm.mock import MockLLMAdapter
 from app.integrations.sheets.memory import InMemorySheetAdapter
+from app.knowledge.gaps import GapLog
+from app.knowledge.store import KnowledgeStore
 
 
 @pytest.fixture(autouse=True)
@@ -24,8 +31,11 @@ def clear_cache() -> None:
     # leak instances across cases.
     _hris_port_cache.clear()
     _dashboard_port_cache.clear()
+    _llm_port_cache.clear()
     deps_module._nonce_store = None
     deps_module._idempotency_store = None
+    deps_module._knowledge_store = None
+    deps_module._gap_log = None
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -111,3 +121,38 @@ def test_get_idempotency_store_returns_the_same_instance_every_call(
 
     assert isinstance(store, IdempotencyStore)
     assert get_idempotency_store() is store
+
+
+def test_get_knowledge_store_returns_the_same_instance_every_call() -> None:
+    store = get_knowledge_store()
+
+    assert isinstance(store, KnowledgeStore)
+    assert get_knowledge_store() is store
+
+
+def test_get_gap_log_returns_the_same_instance_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.core.db.connect", lambda: sqlite3.connect(":memory:"))
+
+    log = get_gap_log()
+
+    assert isinstance(log, GapLog)
+    assert get_gap_log() is log
+
+
+def test_mock_llm_driver_returns_a_mock_adapter() -> None:
+    port = get_llm_port(make_settings(llm_driver="mock"))
+
+    assert isinstance(port, MockLLMAdapter)
+
+
+def test_same_llm_driver_returns_the_same_instance() -> None:
+    settings = make_settings(llm_driver="mock")
+
+    assert get_llm_port(settings) is get_llm_port(settings)
+
+
+def test_gemini_driver_without_api_key_raises() -> None:
+    settings = make_settings(llm_driver="gemini")
+
+    with pytest.raises(RuntimeError):
+        get_llm_port(settings)
