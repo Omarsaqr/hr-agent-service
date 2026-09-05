@@ -1,5 +1,15 @@
 # Roadmap and scope decisions
 
+## Tools are plain functions, not yet HTTP endpoints
+
+`get_leave_balance`, `preview_leave_request`, and `verify_preview_for_submission`
+(`app/api/tools/leave.py`) take their dependencies (`HRISPort`, `Settings`, `NonceStore`, `as_of`,
+`now`) as explicit parameters rather than being registered as FastAPI routes with
+`Depends()`-injected dependencies. This keeps them directly testable without an HTTP
+request/response cycle. Route registration, request/response Pydantic schemas, and auth are real
+remaining work, not done here -- `app/deps.py` builds the singletons (`get_hris_port`,
+`get_nonce_store`) that route handlers will inject when that wiring happens.
+
 ## Deviations from the task brief
 
 The task brief specifies leave-entitlement numbers per country. Every number in
@@ -29,6 +39,12 @@ each policy entry in the table itself, not just here.
 - **Disability-based leave (Egypt).** Egypt's 2025 law grants 45 days to employees with
   disabilities. Not modelled: there is no disability-status field on the employee record, and
   adding one for a single country-specific tier is deferred until a workflow needs it.
+- **Sick-leave preview.** `preview_leave_request` and `get_leave_balance` cover annual leave only.
+  Sick leave's "balance" isn't entitlement-minus-taken -- it's which pay tier (100% / 75% / unpaid)
+  a given day falls into, based on cumulative days already taken this rolling year (see
+  `SickLeavePolicy` in `countries.py`). That's a different response shape, not a variant of this
+  one, and deliberately not bolted onto the annual-leave preview to make it fit. Deferred until
+  sick-leave preview is specifically built.
 - **Moveable public holidays.** `app/domain/calendar.toml` encodes only fixed Gregorian-date
   holidays confirmed by a source (KSA Founding Day and National Day, UAE New Year's Day, Egypt
   Labour Day, Jordan New Year's Day / Labour Day / Christmas Day). Eid al-Fitr, Eid al-Adha,

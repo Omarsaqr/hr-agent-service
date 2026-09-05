@@ -17,6 +17,7 @@ def test_missing_environment_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_reads_environment_from_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("PREVIEW_TOKEN_SECRET", "test-secret")
 
     settings = Settings(_env_file=None)
 
@@ -26,6 +27,7 @@ def test_reads_environment_from_env_vars(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_hris_driver_defaults_to_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("PREVIEW_TOKEN_SECRET", "test-secret")
     monkeypatch.delenv("HRIS_DRIVER", raising=False)
 
     assert Settings(_env_file=None).hris_driver == "memory"
@@ -33,6 +35,7 @@ def test_hris_driver_defaults_to_memory(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_bamboohr_api_key_is_not_exposed_by_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("PREVIEW_TOKEN_SECRET", "test-secret")
     monkeypatch.setenv("BAMBOOHR_API_KEY", "super-secret-value")
 
     settings = Settings(_env_file=None)
@@ -40,6 +43,17 @@ def test_bamboohr_api_key_is_not_exposed_by_repr(monkeypatch: pytest.MonkeyPatch
     assert "super-secret-value" not in repr(settings)
     assert settings.bamboohr_api_key is not None
     assert settings.bamboohr_api_key.get_secret_value() == "super-secret-value"
+
+
+def test_missing_preview_token_secret_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No hardcoded fallback exists for this on purpose: a default secret
+    # baked into the source would make every preview token forgeable by
+    # anyone who can read the code.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("PREVIEW_TOKEN_SECRET", raising=False)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
 
 
 def test_unrecognised_env_file_vars_are_rejected_not_silently_ignored(

@@ -47,6 +47,10 @@ class HRISPort(Protocol):
 
     async def list_pending_approvals(self, manager_id: str) -> list[TimeOffRequest]: ...
 
+    async def get_manager(self, employee_id: str) -> Employee | None:
+        """The employee's direct manager, resolved to a full Employee record."""
+        ...
+
 
 @runtime_checkable
 class DashboardPort(Protocol):

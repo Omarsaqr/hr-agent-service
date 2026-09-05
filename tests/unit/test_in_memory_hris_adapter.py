@@ -237,3 +237,27 @@ async def test_list_pending_approvals_filters_by_manager_and_status() -> None:
     pending_for_mgr1 = await adapter.list_pending_approvals("mgr-1")
 
     assert pending_for_mgr1 == [request_for_mgr1]
+
+
+async def test_get_manager_returns_the_seeded_managers_record() -> None:
+    adapter = InMemoryHRISAdapter()
+    adapter.seed_employee(make_employee(employee_id="emp-1", manager_id="mgr-1"))
+    adapter.seed_employee(make_employee(employee_id="mgr-1", full_name="Manager One"))
+
+    manager = await adapter.get_manager("emp-1")
+
+    assert manager is not None
+    assert manager.employee_id == "mgr-1"
+
+
+async def test_get_manager_returns_none_when_employee_has_no_manager() -> None:
+    adapter = InMemoryHRISAdapter()
+    adapter.seed_employee(make_employee(employee_id="emp-1", manager_id=None))
+
+    assert await adapter.get_manager("emp-1") is None
+
+
+async def test_get_manager_returns_none_for_an_unknown_employee() -> None:
+    adapter = InMemoryHRISAdapter()
+
+    assert await adapter.get_manager("does-not-exist") is None

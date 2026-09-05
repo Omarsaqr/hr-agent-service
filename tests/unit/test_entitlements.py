@@ -3,8 +3,10 @@ from datetime import date
 from app.domain.countries import COUNTRY_POLICIES, AnnualLeavePolicy, EntitlementTier
 from app.domain.entitlements import (
     age_in_years,
+    annual_leave_balance,
     annual_leave_entitlement,
     completed_months_of_service,
+    current_leave_year_start,
 )
 
 
@@ -84,6 +86,42 @@ def test_age_alternative_does_not_skip_the_entry_tier_for_a_new_hire() -> None:
     policy = COUNTRY_POLICIES["Egypt"].annual_leave
 
     assert annual_leave_entitlement(policy, completed_months=3, age=52) == 15
+
+
+def test_annual_leave_balance_is_entitlement_minus_taken() -> None:
+    assert annual_leave_balance(entitlement_days=21, taken_days=3) == 18
+
+
+def test_annual_leave_balance_can_go_negative_rather_than_clamp() -> None:
+    # An over-drawn balance (e.g. after a tenure-tier or policy change)
+    # is a real state worth surfacing, not one to hide behind a floor.
+    assert annual_leave_balance(entitlement_days=14, taken_days=20) == -6
+
+
+def test_current_leave_year_start_before_this_years_anniversary() -> None:
+    hired = date(2021, 11, 1)
+
+    assert current_leave_year_start(hired, date(2026, 10, 15)) == date(2025, 11, 1)
+
+
+def test_current_leave_year_start_on_the_anniversary_itself() -> None:
+    hired = date(2021, 11, 1)
+
+    assert current_leave_year_start(hired, date(2026, 11, 1)) == date(2026, 11, 1)
+
+
+def test_current_leave_year_start_after_this_years_anniversary() -> None:
+    hired = date(2021, 11, 1)
+
+    assert current_leave_year_start(hired, date(2026, 11, 2)) == date(2026, 11, 1)
+
+
+def test_current_leave_year_start_handles_a_leap_day_hire_date() -> None:
+    hired = date(2020, 2, 29)
+
+    # 2026 isn't a leap year, so the anniversary falls back to Feb 28;
+    # by March 1 that anniversary has already passed this year.
+    assert current_leave_year_start(hired, date(2026, 3, 1)) == date(2026, 2, 28)
 
 
 def test_a_flat_country_with_no_further_tiers_needs_no_code_change() -> None:

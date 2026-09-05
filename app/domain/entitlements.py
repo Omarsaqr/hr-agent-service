@@ -18,6 +18,26 @@ def age_in_years(birth_date: date, as_of: date) -> int:
     return completed_months_of_service(birth_date, as_of) // 12
 
 
+def current_leave_year_start(employment_start_date: date, as_of: date) -> date:
+    """The most recent hire-date anniversary on or before `as_of`.
+
+    Entitlement accrues per year of service from the hire date, not the
+    calendar year, so "days taken" must be scoped the same way -- taken
+    days from a previous service year shouldn't suppress this year's
+    balance.
+    """
+
+    def anniversary_in(year: int) -> date:
+        try:
+            return employment_start_date.replace(year=year)
+        except ValueError:
+            # employment_start_date was Feb 29; `year` isn't a leap year.
+            return employment_start_date.replace(year=year, day=28)
+
+    this_year = anniversary_in(as_of.year)
+    return this_year if this_year <= as_of else anniversary_in(as_of.year - 1)
+
+
 def _tier_qualifies(
     tier: EntitlementTier, completed_months: int, age: int | None, prior_threshold: int
 ) -> bool:
@@ -55,3 +75,10 @@ def annual_leave_entitlement(
 
     accrual_months = max(completed_months - applicable.min_months, 0)
     return accrual_months * (applicable.monthly_accrual_days or 0.0)
+
+
+def annual_leave_balance(entitlement_days: float, taken_days: float) -> float:
+    # Not clamped to zero: an employee can legitimately be over-drawn
+    # (e.g. a mid-year policy or tenure-tier change), and a negative
+    # result surfaces that honestly instead of hiding it as zero.
+    return entitlement_days - taken_days

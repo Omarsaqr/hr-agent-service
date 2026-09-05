@@ -6,5 +6,6 @@
   "hireDate": "2021-11-01",
   "birthDate": "1990-06-15",
   "status": "Active",
-  "mobilePhone": "+966500000001"
+  "mobilePhone": "+966500000001",
+  "reportsTo": "Omar Khalid"
 }

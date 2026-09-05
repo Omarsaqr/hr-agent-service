@@ -91,3 +91,9 @@ class InMemoryHRISAdapter:
             and (employee := self._employees.get(request.employee_id)) is not None
             and employee.manager_id == manager_id
         ]
+
+    async def get_manager(self, employee_id: str) -> Employee | None:
+        employee = self._employees.get(employee_id)
+        if employee is None or employee.manager_id is None:
+            return None
+        return self._employees.get(employee.manager_id)

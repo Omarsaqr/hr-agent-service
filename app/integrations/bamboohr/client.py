@@ -4,7 +4,7 @@ import httpx
 
 from app.integrations.bamboohr.retry import request_with_retry
 
-_EMPLOYEE_FIELDS = "firstName,lastName,hireDate,birthDate,status,mobilePhone,country"
+_EMPLOYEE_FIELDS = "firstName,lastName,hireDate,birthDate,status,mobilePhone,country,reportsTo"
 # BambooHR defaults several endpoints (the directory, notably) to XML;
 # every call asks for JSON explicitly rather than relying on a default
 # that differs by endpoint.

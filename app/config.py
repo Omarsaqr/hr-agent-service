@@ -21,4 +21,9 @@ class Settings(BaseSettings):
     # on one dataclass.
     bamboohr_api_key: SecretStr | None = None
 
+    # No default, deliberately: a hardcoded fallback would make every
+    # preview token signature forgeable by anyone who reads the source.
+    # Missing this must fail startup, not silently sign with a known key.
+    preview_token_secret: SecretStr
+
     model_config = SettingsConfigDict(env_file=".env")

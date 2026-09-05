@@ -58,6 +58,7 @@ class BambooHRAdapter:
         # is harmless, a stale balance tells someone they have days
         # they've already used.
         self._employee_cache: TTLCache[Employee | None] = TTLCache(_EMPLOYEE_CACHE_TTL_SECONDS)
+        self._manager_cache: TTLCache[Employee | None] = TTLCache(_EMPLOYEE_CACHE_TTL_SECONDS)
         self._time_off_types: list[dict[str, Any]] | None = None
 
     async def get_employee(self, employee_id: str) -> Employee | None:
@@ -189,6 +190,34 @@ class BambooHRAdapter:
             if raw.get("supervisor") == manager.full_name
         }
         return [r for r in requests if r.employee_id in direct_report_ids]
+
+    async def get_manager(self, employee_id: str) -> Employee | None:
+        hit, cached = self._manager_cache.get(employee_id)
+        if hit:
+            return cached
+
+        # reportsTo (from the raw record, not the mapped Employee -- see
+        # _map_employee) is a display name. Resolving it to an id means
+        # searching the directory for the entry whose own name matches,
+        # same direction list_pending_approvals runs in reverse.
+        raw = await self._client.get_employee(employee_id)
+        manager_name = raw.get("reportsTo") if raw is not None else None
+        manager: Employee | None = None
+        if manager_name:
+            directory = await self._client.get_employee_directory()
+            match = next(
+                (
+                    entry
+                    for entry in directory
+                    if f"{entry['firstName']} {entry['lastName']}" == manager_name
+                ),
+                None,
+            )
+            if match is not None:
+                manager = await self.get_employee(match["id"])
+
+        self._manager_cache.set(employee_id, manager)
+        return manager
 
 
 def _map_employee(raw: dict[str, Any]) -> Employee:

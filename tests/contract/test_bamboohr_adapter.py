@@ -265,6 +265,55 @@ async def test_list_pending_approvals_returns_empty_for_an_unresolvable_manager(
 
 
 @respx.mock
+async def test_get_manager_resolves_the_reportsto_name_to_a_full_employee(
+    adapter: BambooHRAdapter,
+) -> None:
+    respx.get(f"{_BASE_URL}/employees/142").mock(
+        return_value=httpx.Response(200, json=_load("employee_142.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/directory").mock(
+        return_value=httpx.Response(200, json=_load("employee_directory.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/88").mock(
+        return_value=httpx.Response(200, json=_load("employee_88.json"))
+    )
+
+    manager = await adapter.get_manager("142")
+
+    assert manager is not None
+    assert manager.employee_id == "88"
+    assert manager.full_name == "Omar Khalid"
+
+
+@respx.mock
+async def test_get_manager_returns_none_when_reportsto_is_absent(
+    adapter: BambooHRAdapter,
+) -> None:
+    respx.get(f"{_BASE_URL}/employees/88").mock(
+        return_value=httpx.Response(200, json=_load("employee_88.json"))
+    )
+
+    # employee_88.json has no reportsTo (Omar Khalid has no manager).
+    assert await adapter.get_manager("88") is None
+
+
+@respx.mock
+async def test_get_manager_returns_none_when_the_name_matches_no_directory_entry(
+    adapter: BambooHRAdapter,
+) -> None:
+    employee_with_unmatched_manager = dict(_load("employee_142.json"))
+    employee_with_unmatched_manager["reportsTo"] = "Nobody In The Directory"
+    respx.get(f"{_BASE_URL}/employees/142").mock(
+        return_value=httpx.Response(200, json=employee_with_unmatched_manager)
+    )
+    respx.get(f"{_BASE_URL}/employees/directory").mock(
+        return_value=httpx.Response(200, json=_load("employee_directory.json"))
+    )
+
+    assert await adapter.get_manager("142") is None
+
+
+@respx.mock
 async def test_get_time_off_requests_is_not_cached(adapter: BambooHRAdapter) -> None:
     route = respx.get(f"{_BASE_URL}/time_off/requests").mock(
         return_value=httpx.Response(200, json=_load("time_off_requests_142.json"))
