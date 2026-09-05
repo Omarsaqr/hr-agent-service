@@ -51,6 +51,18 @@ class HRISPort(Protocol):
         """The employee's direct manager, resolved to a full Employee record."""
         ...
 
+    async def list_direct_reports(self, manager_id: str) -> list[str]:
+        """Employee ids of this manager's direct reports.
+
+        Ids only, not full records: every current caller (list_pending_
+        approvals, the check-in tools) only needs the id set to filter
+        something else by. A caller that wants names already has
+        get_employee for that, one call at a time -- bundling full
+        records in here would cost every id-only caller N extra fetches
+        it didn't ask for.
+        """
+        ...
+
 
 @runtime_checkable
 class DashboardPort(Protocol):

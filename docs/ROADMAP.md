@@ -216,3 +216,39 @@ the trimmed-trailing-cell behavior this adapter defends against (documented, not
 whether a 401 from an expired-early token (clock skew) should trigger one forced-refresh-and-retry
 rather than surfacing as a bare `httpx.HTTPStatusError` -- no live credentials existed to provoke
 that case, so no code exists to handle it either.
+
+## Check-in tools: a ninth port method, and two decisions worth naming
+
+`submit_daily_checkin`, `list_missing_checkins`, and `get_team_summary`
+(`app/api/tools/checkins.py`) needed one relationship no existing port method provided: "who reports
+to this manager." `get_manager` (commit 8) resolves the relationship in the other direction; this is
+its mirror. Added as `HRISPort.list_direct_reports(manager_id) -> list[str]` -- ids only, not full
+`Employee` records, because every actual caller (this, and `list_pending_approvals`, refactored to
+call it instead of duplicating its own directory-scan-by-supervisor-name logic) only needs the id set
+to filter something else by. A caller that wants a name already has `get_employee`; bundling full
+records into the relationship lookup itself would cost every id-only caller N extra fetches it never
+asked for. `BambooHRAdapter.list_pending_approvals` picked up a small behavior change from this
+refactor: it now returns early (skipping the pending-requests fetch entirely) when the manager has
+zero direct reports, instead of fetching and then filtering to nothing -- confirmed against the
+existing contract tests, which check the returned list, not call counts.
+
+**Company-local "today," not server-local or UTC.** `submit_daily_checkin` converts the caller's UTC
+`now` to `Asia/Riyadh` before taking `.date()` -- a check-in submitted at 22:30 UTC is already
+tomorrow in Riyadh (UTC+3), and which calendar day a check-in counts as is a business-calendar
+question, not a function of whichever timezone the request happened to arrive in. Pinned as a
+regression test. On Windows, `zoneinfo` has no system IANA database to read from, so this also added
+`tzdata` as a dependency -- not a new capability, a portability fix for a stdlib module already in
+use; Python's own `zoneinfo` docs recommend it for exactly this case.
+
+**Sunday-start week, verified against `date.strftime`, not derived by hand.** `domain/checkins.
+week_bounds` computes the Sunday-to-Saturday week (the Gulf work week, not the ISO Monday-start one)
+containing a given date. The formula was checked empirically against a confirmed Sunday
+(2026-06-07) and every day through the following Saturday before being trusted, the same discipline
+applied to the Hijri epoch constant -- an off-by-one here would misfile which week a Thursday
+check-in belongs to without ever raising an error.
+
+**`get_team_summary` aggregates; it doesn't re-filter.** `DashboardPort.get_checkins` already scopes
+results to the requested employee ids and date range and collapses same-day resubmissions to the
+latest one. `domain.checkins.summarize_team_week` trusts that and only computes missing-employee ids
+and the average rating over what it's given, rather than re-implementing filtering that already
+happened at the adapter boundary.

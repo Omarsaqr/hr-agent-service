@@ -102,3 +102,6 @@ class InMemoryHRISAdapter:
         if employee is None or employee.manager_id is None:
             return None
         return self._employees.get(employee.manager_id)
+
+    async def list_direct_reports(self, manager_id: str) -> list[str]:
+        return [e.employee_id for e in self._employees.values() if e.manager_id == manager_id]

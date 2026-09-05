@@ -169,7 +169,18 @@ class BambooHRAdapter:
         return _map_time_off_request(raw)
 
     async def list_pending_approvals(self, manager_id: str) -> list[TimeOffRequest]:
-        # No native "pending approvals for manager X" endpoint, and no
+        direct_report_ids = set(await self.list_direct_reports(manager_id))
+        if not direct_report_ids:
+            return []
+
+        pending_raw = await self._client.get_all_pending_requests(
+            start=date.min.isoformat(), end=date.max.isoformat()
+        )
+        requests = [_map_time_off_request(raw) for raw in pending_raw]
+        return [r for r in requests if r.employee_id in direct_report_ids]
+
+    async def list_direct_reports(self, manager_id: str) -> list[str]:
+        # No native "direct reports of manager X" endpoint, and no
         # id-based manager field either: the directory's only manager
         # reference is `supervisor`, a display name. Resolve the target
         # manager's own name via get_employee, then match that string
@@ -179,17 +190,8 @@ class BambooHRAdapter:
         if manager is None:
             return []
 
-        pending_raw = await self._client.get_all_pending_requests(
-            start=date.min.isoformat(), end=date.max.isoformat()
-        )
-        requests = [_map_time_off_request(raw) for raw in pending_raw]
-
-        direct_report_ids = {
-            raw["id"]
-            for raw in await self._client.get_employee_directory()
-            if raw.get("supervisor") == manager.full_name
-        }
-        return [r for r in requests if r.employee_id in direct_report_ids]
+        directory = await self._client.get_employee_directory()
+        return [raw["id"] for raw in directory if raw.get("supervisor") == manager.full_name]
 
     async def get_manager(self, employee_id: str) -> Employee | None:
         hit, cached = self._manager_cache.get(employee_id)

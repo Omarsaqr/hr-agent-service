@@ -314,6 +314,31 @@ async def test_get_manager_returns_none_when_the_name_matches_no_directory_entry
 
 
 @respx.mock
+async def test_list_direct_reports_matches_supervisor_name_in_the_directory(
+    adapter: BambooHRAdapter,
+) -> None:
+    respx.get(f"{_BASE_URL}/employees/88").mock(
+        return_value=httpx.Response(200, json=_load("employee_88.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/directory").mock(
+        return_value=httpx.Response(200, json=_load("employee_directory.json"))
+    )
+
+    reports = await adapter.list_direct_reports("88")
+
+    assert reports == ["142"]
+
+
+@respx.mock
+async def test_list_direct_reports_returns_empty_for_an_unresolvable_manager(
+    adapter: BambooHRAdapter,
+) -> None:
+    respx.get(f"{_BASE_URL}/employees/does-not-exist").mock(return_value=httpx.Response(404))
+
+    assert await adapter.list_direct_reports("does-not-exist") == []
+
+
+@respx.mock
 async def test_get_time_off_requests_is_not_cached(adapter: BambooHRAdapter) -> None:
     route = respx.get(f"{_BASE_URL}/time_off/requests").mock(
         return_value=httpx.Response(200, json=_load("time_off_requests_142.json"))

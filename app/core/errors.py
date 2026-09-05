@@ -24,3 +24,14 @@ class ToolError(Exception):
             "recovery_hint": self.recovery_hint,
             "data": self.data,
         }
+
+
+def employee_not_found() -> dict[str, Any]:
+    """Shared across every tool that takes an employee_id: leave, knowledge,
+    and check-in tools all hit the same failure the same way."""
+    return ToolError(
+        code="EMPLOYEE_NOT_FOUND",
+        message_en="I couldn't find an employee record for that id.",
+        message_ar="لم أتمكن من العثور على سجل موظف بهذا المعرف.",
+        recovery_hint="Confirm the employee id came from resolve_employee, not user input.",
+    ).to_response()

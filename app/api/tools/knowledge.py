@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from app.core.errors import ToolError
+from app.core.errors import ToolError, employee_not_found
 from app.core.i18n import detect_script, resolve_language
 from app.domain.countries import COUNTRY_POLICIES
 from app.integrations.ports import HRISPort
@@ -29,12 +29,7 @@ async def answer_hr_question(
     # answer without a resolved employee record behind it.
     employee = await hris.get_employee(employee_id)
     if employee is None:
-        return ToolError(
-            code="EMPLOYEE_NOT_FOUND",
-            message_en="I couldn't find an employee record for that id.",
-            message_ar="لم أتمكن من العثور على سجل موظف بهذا المعرف.",
-            recovery_hint="Confirm the employee id came from resolve_employee, not user input.",
-        ).to_response()
+        return employee_not_found()
 
     language = resolve_language(employee.preferred_language, detect_script(question))
     results = knowledge_store.search(question, language, top_k=1)

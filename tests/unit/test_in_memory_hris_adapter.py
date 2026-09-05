@@ -261,3 +261,22 @@ async def test_get_manager_returns_none_for_an_unknown_employee() -> None:
     adapter = InMemoryHRISAdapter()
 
     assert await adapter.get_manager("does-not-exist") is None
+
+
+async def test_list_direct_reports_returns_ids_of_employees_reporting_to_the_manager() -> None:
+    adapter = InMemoryHRISAdapter()
+    adapter.seed_employee(make_employee(employee_id="mgr-1", manager_id=None))
+    adapter.seed_employee(make_employee(employee_id="emp-1", manager_id="mgr-1"))
+    adapter.seed_employee(make_employee(employee_id="emp-2", manager_id="mgr-1"))
+    adapter.seed_employee(make_employee(employee_id="emp-3", manager_id="mgr-2"))
+
+    reports = await adapter.list_direct_reports("mgr-1")
+
+    assert sorted(reports) == ["emp-1", "emp-2"]
+
+
+async def test_list_direct_reports_returns_empty_for_a_manager_with_no_reports() -> None:
+    adapter = InMemoryHRISAdapter()
+    adapter.seed_employee(make_employee(employee_id="mgr-1", manager_id=None))
+
+    assert await adapter.list_direct_reports("mgr-1") == []

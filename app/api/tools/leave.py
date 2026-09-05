@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from app.config import Settings
 from app.core.audit import AuditLog
-from app.core.errors import ToolError
+from app.core.errors import ToolError, employee_not_found
 from app.core.i18n import format_date_bilingual, to_arabic_indic_numerals
 from app.core.idempotency import IdempotencyStore, NonceStore, compute_request_fingerprint
 from app.core.preview_tokens import (
@@ -68,15 +68,6 @@ class BalanceChangedError(Exception):
     what preview showed -- a stale token, not an invalid one."""
 
 
-def _employee_not_found() -> dict[str, Any]:
-    return ToolError(
-        code="EMPLOYEE_NOT_FOUND",
-        message_en="I couldn't find an employee record for that id.",
-        message_ar="لم أتمكن من العثور على سجل موظف بهذا المعرف.",
-        recovery_hint="Confirm the employee id came from resolve_employee, not user input.",
-    ).to_response()
-
-
 def _country_not_supported(country: str) -> dict[str, Any]:
     return ToolError(
         code="COUNTRY_NOT_SUPPORTED",
@@ -102,7 +93,7 @@ async def get_leave_balance(
 ) -> dict[str, Any]:
     employee = await hris.get_employee(employee_id)
     if employee is None:
-        return _employee_not_found()
+        return employee_not_found()
 
     policy = COUNTRY_POLICIES.get(employee.country)
     if policy is None:
@@ -173,7 +164,7 @@ async def preview_leave_request(
 
     employee = await hris.get_employee(employee_id)
     if employee is None:
-        return _employee_not_found()
+        return employee_not_found()
 
     policy = COUNTRY_POLICIES.get(employee.country)
     calendar = COUNTRY_CALENDARS.get(employee.country)
