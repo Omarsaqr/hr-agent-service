@@ -126,6 +126,26 @@ async def test_get_time_off_requests_filters_overlapping_range() -> None:
     assert outside == []
 
 
+async def test_request_ending_on_the_new_start_date_is_a_conflict() -> None:
+    adapter = InMemoryHRISAdapter()
+    await adapter.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1",
+            leave_type="annual",
+            start_date=date(2026, 6, 1),
+            end_date=date(2026, 6, 5),
+            working_days=5,
+        )
+    )
+
+    # Shared boundary day counts as overlap, not a gap.
+    conflicts = await adapter.get_time_off_requests(
+        "emp-1", start=date(2026, 6, 5), end=date(2026, 6, 8)
+    )
+
+    assert len(conflicts) == 1
+
+
 async def test_get_time_off_taken_sums_only_approved_requests_since_date() -> None:
     adapter = InMemoryHRISAdapter()
     old_request = await adapter.create_time_off_request(
