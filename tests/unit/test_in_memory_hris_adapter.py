@@ -280,3 +280,22 @@ async def test_list_direct_reports_returns_empty_for_a_manager_with_no_reports()
     adapter.seed_employee(make_employee(employee_id="mgr-1", manager_id=None))
 
     assert await adapter.list_direct_reports("mgr-1") == []
+
+
+async def test_list_employees_by_country_returns_full_records() -> None:
+    adapter = InMemoryHRISAdapter()
+    adapter.seed_employee(make_employee(employee_id="emp-1", country="KSA"))
+    adapter.seed_employee(make_employee(employee_id="emp-2", country="KSA"))
+    adapter.seed_employee(make_employee(employee_id="emp-3", country="UAE"))
+
+    ksa_employees = await adapter.list_employees_by_country("KSA")
+
+    assert sorted(e.employee_id for e in ksa_employees) == ["emp-1", "emp-2"]
+    assert all(isinstance(e, Employee) for e in ksa_employees)
+
+
+async def test_list_employees_by_country_returns_empty_for_an_unrepresented_country() -> None:
+    adapter = InMemoryHRISAdapter()
+    adapter.seed_employee(make_employee(employee_id="emp-1", country="KSA"))
+
+    assert await adapter.list_employees_by_country("Jordan") == []

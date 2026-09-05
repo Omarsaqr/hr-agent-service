@@ -105,3 +105,6 @@ class InMemoryHRISAdapter:
 
     async def list_direct_reports(self, manager_id: str) -> list[str]:
         return [e.employee_id for e in self._employees.values() if e.manager_id == manager_id]
+
+    async def list_employees_by_country(self, country: str) -> list[Employee]:
+        return [e for e in self._employees.values() if e.country == country]

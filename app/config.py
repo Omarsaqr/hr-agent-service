@@ -35,4 +35,8 @@ class Settings(BaseSettings):
     # Missing this must fail startup, not silently sign with a known key.
     preview_token_secret: SecretStr
 
+    # Off by default so tests and CI never accidentally start a
+    # background scheduler thread -- opt in explicitly to see it run.
+    iqama_scheduler_enabled: bool = False
+
     model_config = SettingsConfigDict(env_file=".env")

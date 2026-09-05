@@ -18,6 +18,14 @@ def age_in_years(birth_date: date, as_of: date) -> int:
     return completed_months_of_service(birth_date, as_of) // 12
 
 
+def years_of_service(employment_start_date: date, as_of: date) -> float:
+    # Whole completed months, same granularity tenure is tracked at
+    # everywhere else in this system (leave entitlement, sick leave
+    # tiers) -- gratuity doesn't get its own day-level precision just
+    # because it's a monetary figure.
+    return completed_months_of_service(employment_start_date, as_of) / 12.0
+
+
 def current_leave_year_start(employment_start_date: date, as_of: date) -> date:
     """The most recent hire-date anniversary on or before `as_of`.
 

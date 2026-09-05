@@ -252,3 +252,81 @@ results to the requested employee ids and date range and collapses same-day resu
 latest one. `domain.checkins.summarize_team_week` trusts that and only computes missing-employee ids
 and the average rating over what it's given, rather than re-implementing filtering that already
 happened at the adapter boundary.
+
+## Gratuity: modelled where the law is confident, refused where it isn't
+
+`app/domain/gratuity.py` and `app/api/tools/gratuity.py`. Every figure below was checked against
+current sources (not encoded from training-data recall) precisely because this area has already
+burned this project once -- Egypt's annual leave law changed in 2025, and gratuity/end-of-service
+law across these four countries turns out to be even less uniform than leave entitlement.
+
+- **KSA** -- full model. Half a month's wage per year of service for the first 5 years, a full
+  month's wage per year after that (Art. 84). Resignation scales the award by tenure: <2 years
+  nothing, 2-5 years a third, 5-10 years two-thirds, 10+ years the full award (Art. 85).
+  Cause-termination under the nine grounds in Art. 80 forfeits it entirely. Everything else --
+  ordinary termination, retirement, death, disability -- pays the full award regardless of tenure.
+- **UAE** -- full model, and simpler than expected. Under the *current* law (Federal Decree-Law No.
+  33 of 2021, effective Feb 2022), gratuity is reason-independent: resignation, ordinary
+  termination, and even Art. 44 summary dismissal for gross misconduct all pay the same award once
+  the 1-year minimum is met. This is a genuine change from the pre-2022 law, which several
+  still-current-looking summary articles conflate with today's rule (misconduct no longer
+  auto-forfeits -- forfeiture now needs a court ruling or MOHRE-approved settlement, which this
+  system has no way to know about, so it's never assumed). 21 days' wage/year for the first 5
+  years, 30 days/year after, capped at two years' total wage.
+- **Egypt -- retirement only.** Egypt has no Gulf-style gratuity payable on any separation;
+  end-of-service normally runs through the social-insurance/pension system (Law 148/2019), outside
+  this system's scope entirely. The one figure with a confident, consistent citation across sources
+  is the retirement gratuity (half a month/year for 5 years, a full month/year after, under Law
+  14/2025). Resignation and employer-initiated termination are governed by separate compensation
+  formulas that depend on *why* the employer ended the contract (arbitrary dismissal: 2 months/year;
+  economic dismissal: a different graduated formula; fixed-term expiry: 1 month/year) --
+  secondary sources describe these consistently with each other but not always precisely enough to
+  cite an article number with confidence, and a wrong severance figure stated confidently is worse
+  than an honest refusal. `calculate_gratuity` returns `GRATUITY_NOT_MODELED` for every Egypt reason
+  except `retirement`.
+- **Jordan -- not modelled at all.** Most Jordanian employees' end-of-service benefit is
+  administered by the Social Security Corporation (a government lump-sum/pension), not paid
+  directly by the employer -- the employer-gratuity formula found (1 month/year) only applies to
+  employees outside SSC coverage, and there's a further wrinkle where gratuity may still be owed on
+  salary above the SSC ceiling (JOD 3,349) even for covered employees. This system has no
+  SSC-coverage-status field and no way to apply that ceiling correctly, so rather than encode a
+  formula that's only sometimes the right one, Jordan is refused entirely -- the same "no confident
+  source, no entry" rule already applied to sick leave for UAE/Egypt/Jordan.
+
+**Salary is caller-supplied, not fetched from HRIS.** `calculate_gratuity` takes `basic_salary` as an
+explicit parameter rather than reading it from BambooHR. No compensation endpoint has been verified
+against the live trial account (previous BambooHR work only verified employee, time-off, and
+directory endpoints) -- inventing a shape for an unverified endpoint would repeat exactly the
+mistake this project's verification discipline exists to avoid. The tool's job is the computation,
+not sourcing the wage figure.
+
+## Iqama expiry alerts: a real scan, a logged alert, no outbound message
+
+`app/domain/iqama.py`, `app/jobs/iqama_expiry.py`, `app/core/iqama_alerts.py`,
+`app/core/scheduler.py`. A daily APScheduler cron job (6am `Asia/Riyadh`, explicit timezone --
+APScheduler defaults to the server's local time, which would silently alert at the wrong hour if
+this is ever deployed outside Riyadh) scans every KSA employee for an Iqama expiring within 90 days
+(a pragmatic ops default, not a legal citation) or already expired, and records each hit in
+`iqama_alerts`, an append-only table with the same shape as `GapLog`/`AuditLog`.
+
+"Alert" means exactly that recorded row -- there is no WhatsApp/HeyLua outbound-messaging
+integration in this system, so nothing is actually sent to anyone. Building that would mean
+inventing an unverified messaging integration under the same time pressure this project has
+otherwise refused to cut corners under; logging the alert for HR to review is the honest scope.
+The scheduler itself is off by default (`IQAMA_SCHEDULER_ENABLED=false`) so tests and CI never spin
+up a background thread; `run_iqama_expiry_check` is a plain, directly-callable, fully-tested
+function underneath it, the same "tools are plain functions" shape used everywhere else here.
+
+**`iqama_expiry_date` is always `None` on `BambooHRAdapter`.** BambooHR has no native Iqama field --
+a real integration needs a per-tenant custom field (id + name), configured the same way
+`leave_type_mapping.toml` handles custom time-off type names. Not built here, for the same reason
+the compensation endpoint above isn't: no live tenant configuration exists to verify a shape
+against, and a real production tenant would need its own custom field regardless of what (if
+anything) the trial account happens to have configured.
+
+**`list_employees_by_country` on `BambooHRAdapter` is N+1 and won't scale to 50,000 employees.** The
+directory endpoint (verified in commit 6) carries no `country` field -- only `get_employee`'s fuller
+field set does -- so listing "every KSA employee" means one directory call plus one `get_employee`
+call per employee in the entire directory, filtered client-side. Fine for a demo tenant; a real
+50,000-employee scan needs BambooHR's Reports API (bulk field export) instead, which hasn't been
+verified against a live account and so isn't built here.

@@ -63,6 +63,13 @@ class HRISPort(Protocol):
         """
         ...
 
+    async def list_employees_by_country(self, country: str) -> list[Employee]:
+        """Full records, not ids -- unlike list_direct_reports, every
+        caller of this one (the Iqama expiry scan) needs every field on
+        every result, not just an id to filter something else by.
+        """
+        ...
+
 
 @runtime_checkable
 class DashboardPort(Protocol):

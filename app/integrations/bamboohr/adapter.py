@@ -221,6 +221,20 @@ class BambooHRAdapter:
         self._manager_cache.set(employee_id, manager)
         return manager
 
+    async def list_employees_by_country(self, country: str) -> list[Employee]:
+        # The directory (verified in commit 6) carries no country field --
+        # only get_employee's fuller field set does. There is no bulk
+        # "employees with country=X" endpoint verified against the live
+        # account, so this is N+1: one directory call, then one
+        # get_employee per entry (cached, but only after the first scan).
+        # Fine for a demo tenant; at a real 50,000-employee scale this
+        # needs BambooHR's Reports API instead -- not built here because
+        # no live tenant configuration exists to verify its shape
+        # against. See docs/ROADMAP.md.
+        directory = await self._client.get_employee_directory()
+        employees = [await self.get_employee(raw["id"]) for raw in directory]
+        return [e for e in employees if e is not None and e.country == country]
+
 
 def _map_employee(raw: dict[str, Any]) -> Employee:
     return Employee(
@@ -239,6 +253,12 @@ def _map_employee(raw: dict[str, Any]) -> Employee:
         manager_id=None,
         phone_number=raw.get("mobilePhone"),
         birth_date=date.fromisoformat(raw["birthDate"]) if raw.get("birthDate") else None,
+        # Always None: BambooHR has no native Iqama field. A real
+        # integration needs a per-tenant custom field (id + name),
+        # configured the same way leave_type_mapping.toml handles custom
+        # time-off type names -- not built here since no live tenant
+        # configuration exists to verify a shape against.
+        iqama_expiry_date=None,
     )
 
 

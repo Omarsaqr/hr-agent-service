@@ -24,6 +24,11 @@ class Employee:
     # response schemas and the audit log must not serialise it either --
     # this field never reaches the agent, only entitlements.py.
     birth_date: date | None = field(default=None, repr=False)
+    # KSA-specific (Iqama is Saudi residency-permit terminology); None
+    # everywhere else. repr=False for the same reason as birth_date --
+    # a compliance-relevant date of record, not something that belongs
+    # in a casual log line.
+    iqama_expiry_date: date | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

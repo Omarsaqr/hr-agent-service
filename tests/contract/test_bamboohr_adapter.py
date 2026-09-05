@@ -330,6 +330,43 @@ async def test_list_direct_reports_matches_supervisor_name_in_the_directory(
 
 
 @respx.mock
+async def test_list_employees_by_country_scans_the_directory_and_filters(
+    adapter: BambooHRAdapter,
+) -> None:
+    respx.get(f"{_BASE_URL}/employees/directory").mock(
+        return_value=httpx.Response(200, json=_load("employee_directory.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/142").mock(
+        return_value=httpx.Response(200, json=_load("employee_142.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/88").mock(
+        return_value=httpx.Response(200, json=_load("employee_88.json"))
+    )
+
+    employees = await adapter.list_employees_by_country("KSA")
+
+    assert sorted(e.employee_id for e in employees) == ["142", "88"]
+    assert all(e.iqama_expiry_date is None for e in employees)
+
+
+@respx.mock
+async def test_list_employees_by_country_returns_empty_for_an_unrepresented_country(
+    adapter: BambooHRAdapter,
+) -> None:
+    respx.get(f"{_BASE_URL}/employees/directory").mock(
+        return_value=httpx.Response(200, json=_load("employee_directory.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/142").mock(
+        return_value=httpx.Response(200, json=_load("employee_142.json"))
+    )
+    respx.get(f"{_BASE_URL}/employees/88").mock(
+        return_value=httpx.Response(200, json=_load("employee_88.json"))
+    )
+
+    assert await adapter.list_employees_by_country("Jordan") == []
+
+
+@respx.mock
 async def test_list_direct_reports_returns_empty_for_an_unresolvable_manager(
     adapter: BambooHRAdapter,
 ) -> None:
