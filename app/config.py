@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     # on one dataclass.
     bamboohr_api_key: SecretStr | None = None
 
+    # Same "memory by default, opt in to the real vendor" shape as
+    # hris_driver. The credential here is a file path, not a SecretStr:
+    # the secret itself is the service-account JSON key file on disk,
+    # never a value that passes through this process's environment.
+    dashboard_driver: Literal["memory", "sheets"] = "memory"
+    google_sheets_credentials_path: str | None = None
+    google_sheets_spreadsheet_id: str | None = None
+    google_sheets_sheet_name: str = "checkins"
+
     # No default, deliberately: a hardcoded fallback would make every
     # preview token signature forgeable by anyone who reads the source.
     # Missing this must fail startup, not silently sign with a known key.

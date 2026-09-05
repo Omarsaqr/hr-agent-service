@@ -23,9 +23,9 @@ built out. This file grows into the full walkthrough as those pieces land.
 `BambooHRAdapter` (`app/integrations/bamboohr/`) was verified against a live BambooHR trial
 account -- every `HRISPort` method, reads and writes both -- then against recorded fixtures in
 `app/integrations/bamboohr/fixtures/` that were corrected to match what the live account actually
-returned. The test suite (`tests/contract/test_bamboohr_adapter.py`, `test_bamboohr_retry.py`) runs
-against those fixtures via `respx`, not the live account, so `make test` and CI need zero external
-credentials. What the live account revealed that fixtures alone could not is documented in
+returned. The test suite (`tests/contract/test_bamboohr_adapter.py`, `tests/unit/test_retry.py`)
+runs against those fixtures via `respx`, not the live account, so `make test` and CI need zero
+external credentials. What the live account revealed that fixtures alone could not is documented in
 `docs/ROADMAP.md` under "BambooHR adapter: verified against a live trial account" -- notably that
 the directory endpoint defaults to XML, that BambooHR exposes a manager only as a display name with
 no id-based reference, and that time-off type names are per-tenant configuration, validated at
@@ -35,3 +35,13 @@ The in-memory adapter (`InMemoryHRISAdapter`) is what tools and tests are wired 
 everything continues to run with zero external credentials; the `HRIS_DRIVER` environment-variable
 switch that selects between the two adapters lands with the tool layer that first consumes it,
 rather than being built ahead of anything that uses it.
+
+`GoogleSheetsAdapter` (`app/integrations/sheets/`) follows the same pattern for the daily-check-in
+dashboard: built against the real Sheets API v4 (OAuth2 service-account auth, `values.get` /
+`values.append`, header validation against `docs/ROADMAP.md`'s expected-columns list), but
+`DASHBOARD_DRIVER` defaults to `memory` because no Google Cloud project was available while
+building it. Unlike BambooHR, this one has not yet been verified against a live spreadsheet --
+`tests/contract/test_google_sheets_adapter.py` exercises the real request/response shapes via
+`respx`, including the real JWT-signing code path against a throwaway local key, but nothing here
+has been confirmed against Google's actual servers. `.env.example` lists exactly what setting
+`DASHBOARD_DRIVER=sheets` requires on the Google Cloud side.

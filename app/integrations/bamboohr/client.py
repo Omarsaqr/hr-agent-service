@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 
-from app.integrations.bamboohr.retry import request_with_retry
+from app.integrations.retry import request_with_retry
 
 _EMPLOYEE_FIELDS = "firstName,lastName,hireDate,birthDate,status,mobilePhone,country,reportsTo"
 # BambooHR defaults several endpoints (the directory, notably) to XML;
@@ -30,6 +30,7 @@ class BambooHRClient:
                 auth=self._auth,
             ),
             idempotent=True,
+            service_name="BambooHR",
         )
         if response.status_code == 404:
             return None
@@ -44,6 +45,7 @@ class BambooHRClient:
                 f"{self._base_url}/employees/directory", headers=_JSON_HEADERS, auth=self._auth
             ),
             idempotent=True,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()
@@ -60,6 +62,7 @@ class BambooHRClient:
                 auth=self._auth,
             ),
             idempotent=True,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
@@ -73,6 +76,7 @@ class BambooHRClient:
                 auth=self._auth,
             ),
             idempotent=True,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
@@ -89,6 +93,7 @@ class BambooHRClient:
                 auth=self._auth,
             ),
             idempotent=True,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
@@ -104,6 +109,7 @@ class BambooHRClient:
                 auth=self._auth,
             ),
             idempotent=False,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]
@@ -114,6 +120,7 @@ class BambooHRClient:
                 f"{self._base_url}/meta/time_off/types", headers=_JSON_HEADERS, auth=self._auth
             ),
             idempotent=True,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()
@@ -130,6 +137,7 @@ class BambooHRClient:
                 auth=self._auth,
             ),
             idempotent=False,
+            service_name="BambooHR",
         )
         response.raise_for_status()
         return response.json()  # type: ignore[no-any-return]

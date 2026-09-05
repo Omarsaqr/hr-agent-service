@@ -5,8 +5,16 @@ import pytest
 import app.deps as deps_module
 from app.config import Settings
 from app.core.idempotency import IdempotencyStore, NonceStore
-from app.deps import _hris_port_cache, get_hris_port, get_idempotency_store, get_nonce_store
+from app.deps import (
+    _dashboard_port_cache,
+    _hris_port_cache,
+    get_dashboard_port,
+    get_hris_port,
+    get_idempotency_store,
+    get_nonce_store,
+)
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
+from app.integrations.sheets.memory import InMemorySheetAdapter
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +23,7 @@ def clear_cache() -> None:
     # the app's lifetime) -- tests need a clean slate each time or they'd
     # leak instances across cases.
     _hris_port_cache.clear()
+    _dashboard_port_cache.clear()
     deps_module._nonce_store = None
     deps_module._idempotency_store = None
 
@@ -46,6 +55,36 @@ def test_bamboohr_driver_without_credentials_raises() -> None:
 
     with pytest.raises(RuntimeError):
         get_hris_port(settings)
+
+
+def test_memory_dashboard_driver_returns_an_in_memory_adapter() -> None:
+    port = get_dashboard_port(make_settings(dashboard_driver="memory"))
+
+    assert isinstance(port, InMemorySheetAdapter)
+
+
+def test_same_dashboard_settings_key_returns_the_same_instance() -> None:
+    settings = make_settings(dashboard_driver="memory")
+
+    assert get_dashboard_port(settings) is get_dashboard_port(settings)
+
+
+def test_sheets_driver_without_credentials_path_raises() -> None:
+    settings = make_settings(
+        dashboard_driver="sheets", google_sheets_spreadsheet_id="some-id"
+    )
+
+    with pytest.raises(RuntimeError):
+        get_dashboard_port(settings)
+
+
+def test_sheets_driver_without_spreadsheet_id_raises() -> None:
+    settings = make_settings(
+        dashboard_driver="sheets", google_sheets_credentials_path="/tmp/fake.json"
+    )
+
+    with pytest.raises(RuntimeError):
+        get_dashboard_port(settings)
 
 
 def test_get_nonce_store_returns_the_same_instance_every_call(

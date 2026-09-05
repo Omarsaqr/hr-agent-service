@@ -175,3 +175,44 @@ things a fixture-only build would not have caught:
 - **BambooHR blocks self-approval.** Attempting to approve the account owner's own pending request
   returned `403 Forbidden`. Not handled specially here (it surfaces as an `httpx.HTTPStatusError`)
   but worth knowing before assuming any employee can decide any request they're authorised for.
+
+## Google Sheets dashboard adapter: built real, verified against no live spreadsheet
+
+`GoogleSheetsAdapter` and `GoogleSheetsClient` (`app/integrations/sheets/`) are a real Sheets API v4
+integration -- OAuth2 service-account auth (JWT Bearer flow, RFC 7523), `values.get`/`values.append`
+over httpx, retried through the same `request_with_retry` every other vendor uses. Unlike the
+BambooHR adapter, this one was built with no Google Cloud project available, so `DASHBOARD_DRIVER`
+defaults to `memory` and nothing here has been exercised against a real spreadsheet. What's actually
+covered: `tests/contract/test_google_sheets_adapter.py` runs the full request/response flow through
+`respx`, including real JWT construction and RSA-SHA256 signing (`google.auth.jwt.encode` +
+`google.auth.crypt.RSASigner`) against a throwaway locally-generated key -- so the auth code path is
+exercised end-to-end, just not against Google's actual token endpoint. `.env.example` documents
+exactly what running this for real requires: a GCP project with the Sheets API enabled, a service
+account with a downloaded JSON key, and a spreadsheet shared with that service account's email as an
+Editor.
+
+**New dependency: `google-auth`.** Needed for RSA-SHA256 JWT signing, which is not something to
+hand-roll (it's security-sensitive, credential-adjacent code). Deliberately not
+`google-api-python-client` or `gspread` -- both are full client SDKs built on top of `requests`, and
+both would mean a second HTTP library alongside httpx for what is, underneath, two REST calls
+(`values.get`, `values.append`). `google-auth` alone provides the signing primitives
+(`google.auth.crypt`, `google.auth.jwt`) without pulling in a transport of its own; this adapter does
+its own token-endpoint POST and API calls via httpx + the shared retry module, the same as BambooHR.
+
+**Retry and cache generalized out of the BambooHR package.** `app/integrations/bamboohr/retry.py`
+and `cache.py` moved to `app/integrations/retry.py` and `cache.py`, becoming vendor-neutral
+(`request_with_retry` now takes a `service_name` for its error messages/logs instead of hardcoding
+"BambooHR"). Both BambooHR and Sheets clients import the shared versions -- one retry policy and one
+TTL-cache implementation for the whole codebase, not one per vendor. `TTLCache` was not reused for
+the Sheets OAuth token cache, though: `TTLCache` assumes one fixed TTL configured at construction,
+but an OAuth token's real lifetime comes from the token response itself (`expires_in`), which varies
+per call. Forcing that through a fixed-TTL cache would mean ignoring the server's stated expiry in
+favor of a guess; a plain `(token, expires_at)` pair on the client is more correct for this one case,
+not a DRY violation.
+
+**Not verified, and worth re-checking against a real spreadsheet before relying on this in
+production:** whether Google's actual `values.get` response shape for a sparse/gapped range matches
+the trimmed-trailing-cell behavior this adapter defends against (documented, not directly observed);
+whether a 401 from an expired-early token (clock skew) should trigger one forced-refresh-and-retry
+rather than surfacing as a bare `httpx.HTTPStatusError` -- no live credentials existed to provoke
+that case, so no code exists to handle it either.
