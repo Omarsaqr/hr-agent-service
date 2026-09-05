@@ -76,6 +76,16 @@ def test_egypt_entitlement_reaches_the_top_tier_at_age_fifty_regardless_of_tenur
     assert annual_leave_entitlement(policy, completed_months=24, age=49) == 21
 
 
+def test_age_alternative_does_not_skip_the_entry_tier_for_a_new_hire() -> None:
+    # Age 50 is a substitute for the 10-year tenure test on the top tier,
+    # not a substitute for having any service at all. A 52-year-old hired
+    # three months ago hasn't reached the 1-year/21-day tier yet either,
+    # so the age branch must not vault them past it to 30.
+    policy = COUNTRY_POLICIES["Egypt"].annual_leave
+
+    assert annual_leave_entitlement(policy, completed_months=3, age=52) == 15
+
+
 def test_a_flat_country_with_no_further_tiers_needs_no_code_change() -> None:
     # Demonstrates the "adding Oman is a data change" property directly:
     # a country with a single flat rate is just one tier, no branch in

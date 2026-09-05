@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal
 
@@ -17,8 +17,13 @@ class Employee:
     manager_id: str | None = None
     phone_number: str | None = None
     preferred_language: Language | None = None
-    # Needed for Egypt's age-50 alternative entitlement threshold.
-    birth_date: date | None = None
+    # Needed for Egypt's age-50 alternative entitlement threshold. Kept as
+    # a date rather than a precomputed age: age is only correct as of a
+    # specific `as_of`, and a cached int would go stale the day after it
+    # was computed. repr=False keeps it out of logs and reprs; tool
+    # response schemas and the audit log must not serialise it either --
+    # this field never reaches the agent, only entitlements.py.
+    birth_date: date | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
