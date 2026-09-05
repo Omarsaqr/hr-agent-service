@@ -2,6 +2,7 @@ import httpx
 
 from app.config import Settings
 from app.core import db
+from app.core.audit import AuditLog
 from app.core.idempotency import IdempotencyStore, NonceStore
 from app.integrations.bamboohr.adapter import BambooHRAdapter
 from app.integrations.bamboohr.client import BambooHRClient
@@ -15,6 +16,7 @@ from app.integrations.ports import HRISPort
 _hris_port_cache: dict[tuple[str, str | None], HRISPort] = {}
 _nonce_store: NonceStore | None = None
 _idempotency_store: IdempotencyStore | None = None
+_audit_log: AuditLog | None = None
 
 
 def get_hris_port(settings: Settings) -> HRISPort:
@@ -43,6 +45,13 @@ def get_idempotency_store() -> IdempotencyStore:
     if _idempotency_store is None:
         _idempotency_store = IdempotencyStore(db.connect())
     return _idempotency_store
+
+
+def get_audit_log() -> AuditLog:
+    global _audit_log
+    if _audit_log is None:
+        _audit_log = AuditLog(db.connect())
+    return _audit_log
 
 
 def _build_hris_port(settings: Settings) -> HRISPort:

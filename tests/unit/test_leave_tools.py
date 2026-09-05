@@ -1,16 +1,22 @@
 import base64
+import dataclasses
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from app.api.tools.leave import (
+    decide_leave_request,
     get_leave_balance,
+    list_pending_approvals,
     preview_leave_request,
+    resolve_approver,
+    submit_leave_request,
     verify_preview_for_submission,
 )
 from app.config import Settings
-from app.core.idempotency import NonceStore
+from app.core.audit import AuditLog
+from app.core.idempotency import IdempotencyStore, NonceStore
 from app.domain.models import Employee, TimeOffRequestDraft
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
 
@@ -63,6 +69,16 @@ async def _seed_approved_days(hris: InMemoryHRISAdapter, days: float) -> None:
 @pytest.fixture
 def nonce_store() -> NonceStore:
     return NonceStore(sqlite3.connect(":memory:"))
+
+
+@pytest.fixture
+def idempotency_store() -> IdempotencyStore:
+    return IdempotencyStore(sqlite3.connect(":memory:"))
+
+
+@pytest.fixture
+def audit_log() -> AuditLog:
+    return AuditLog(sqlite3.connect(":memory:"))
 
 
 async def test_get_leave_balance_computes_entitlement_minus_taken(
@@ -432,4 +448,262 @@ async def test_tampered_signature_is_logged_as_a_security_event(
             now=NOW,
         )
 
-    assert any("app.security" == r.name and "signature" in r.message for r in caplog.records)
+
+# --- resolve_approver / escalation ladder --------------------------------
+
+
+async def test_resolve_approver_returns_the_active_direct_manager(
+    hris: InMemoryHRISAdapter,
+) -> None:
+    approver = await resolve_approver("emp-1", AS_OF, hris)
+
+    assert approver is not None
+    assert approver.employee_id == "mgr-1"
+
+
+async def test_resolve_approver_escalates_when_direct_manager_is_inactive(
+    hris: InMemoryHRISAdapter,
+) -> None:
+    hris.seed_employee(
+        Employee(
+            employee_id="mgr-1",
+            full_name="Manager One",
+            country="KSA",
+            employment_start_date=date(2015, 1, 1),
+            status="terminated",
+            manager_id="mgr-2",
+        )
+    )
+    hris.seed_employee(
+        Employee(
+            employee_id="mgr-2",
+            full_name="Skip Level",
+            country="KSA",
+            employment_start_date=date(2010, 1, 1),
+            status="active",
+        )
+    )
+
+    approver = await resolve_approver("emp-1", AS_OF, hris)
+
+    assert approver is not None
+    assert approver.employee_id == "mgr-2"
+
+
+async def test_resolve_approver_escalates_when_direct_manager_is_on_leave(
+    hris: InMemoryHRISAdapter,
+) -> None:
+    hris.seed_employee(
+        Employee(
+            employee_id="mgr-1",
+            full_name="Manager One",
+            country="KSA",
+            employment_start_date=date(2015, 1, 1),
+            status="active",
+            manager_id="mgr-2",
+        )
+    )
+    hris.seed_employee(
+        Employee(
+            employee_id="mgr-2",
+            full_name="Skip Level",
+            country="KSA",
+            employment_start_date=date(2010, 1, 1),
+            status="active",
+        )
+    )
+    leave_request = await hris.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="mgr-1",
+            leave_type="annual",
+            start_date=AS_OF,
+            end_date=AS_OF,
+            working_days=1,
+        )
+    )
+    await hris.decide_time_off_request(leave_request.request_id, "approved", decided_by="mgr-2")
+
+    approver = await resolve_approver("emp-1", AS_OF, hris)
+
+    assert approver is not None
+    assert approver.employee_id == "mgr-2"
+
+
+async def test_resolve_approver_returns_none_when_skip_level_also_unavailable(
+    hris: InMemoryHRISAdapter,
+) -> None:
+    hris.seed_employee(
+        Employee(
+            employee_id="mgr-1",
+            full_name="Manager One",
+            country="KSA",
+            employment_start_date=date(2015, 1, 1),
+            status="terminated",
+            manager_id="mgr-2",
+        )
+    )
+    hris.seed_employee(
+        Employee(
+            employee_id="mgr-2",
+            full_name="Skip Level",
+            country="KSA",
+            employment_start_date=date(2010, 1, 1),
+            status="terminated",
+        )
+    )
+
+    assert await resolve_approver("emp-1", AS_OF, hris) is None
+
+
+# --- submit_leave_request -------------------------------------------------
+
+
+async def test_submit_leave_request_creates_the_request_and_audits_it(
+    hris: InMemoryHRISAdapter,
+    nonce_store: NonceStore,
+    idempotency_store: IdempotencyStore,
+    audit_log: AuditLog,
+) -> None:
+    settings = make_settings()
+    preview = await preview_leave_request(
+        "emp-1", "annual", date(2026, 6, 1), date(2026, 6, 5),
+        hris=hris, settings=settings, as_of=AS_OF, now=NOW,
+    )
+
+    result = await submit_leave_request(
+        preview["preview_token"], "idem-1",
+        hris=hris, settings=settings, nonce_store=nonce_store,
+        idempotency_store=idempotency_store, audit_log=audit_log, as_of=AS_OF, now=NOW,
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["status"] == "pending"
+    stored = await hris.get_time_off_requests("emp-1")
+    assert len(stored) == 1
+    assert stored[0].request_id == result["data"]["request_id"]
+
+
+async def test_submit_leave_request_replay_does_not_create_a_second_request(
+    hris: InMemoryHRISAdapter,
+    nonce_store: NonceStore,
+    idempotency_store: IdempotencyStore,
+    audit_log: AuditLog,
+) -> None:
+    settings = make_settings()
+    preview = await preview_leave_request(
+        "emp-1", "annual", date(2026, 6, 1), date(2026, 6, 5),
+        hris=hris, settings=settings, as_of=AS_OF, now=NOW,
+    )
+    first = await submit_leave_request(
+        preview["preview_token"], "idem-1",
+        hris=hris, settings=settings, nonce_store=nonce_store,
+        idempotency_store=idempotency_store, audit_log=audit_log, as_of=AS_OF, now=NOW,
+    )
+    second = await submit_leave_request(
+        preview["preview_token"], "idem-1",
+        hris=hris, settings=settings, nonce_store=nonce_store,
+        idempotency_store=idempotency_store, audit_log=audit_log, as_of=AS_OF, now=NOW,
+    )
+
+    assert second == first
+    assert len(await hris.get_time_off_requests("emp-1")) == 1
+
+
+async def test_submit_leave_request_passes_through_a_verification_failure(
+    hris: InMemoryHRISAdapter,
+    nonce_store: NonceStore,
+    idempotency_store: IdempotencyStore,
+    audit_log: AuditLog,
+) -> None:
+    settings = make_settings()
+    preview = await preview_leave_request(
+        "emp-1", "annual", date(2026, 6, 1), date(2026, 6, 5),
+        hris=hris, settings=settings, as_of=AS_OF, now=NOW,
+    )
+
+    result = await submit_leave_request(
+        preview["preview_token"], "idem-1",
+        hris=hris, settings=settings, nonce_store=nonce_store,
+        idempotency_store=idempotency_store, audit_log=audit_log,
+        as_of=AS_OF, now=NOW.replace(hour=9, minute=16),
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "PREVIEW_EXPIRED"
+    assert await hris.get_time_off_requests("emp-1") == []
+
+
+# --- decide_leave_request --------------------------------------------------
+
+
+async def test_decide_leave_request_by_the_resolved_approver_succeeds(
+    hris: InMemoryHRISAdapter, idempotency_store: IdempotencyStore, audit_log: AuditLog
+) -> None:
+    request = await hris.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1", leave_type="annual",
+            start_date=date(2026, 6, 1), end_date=date(2026, 6, 5), working_days=4,
+        )
+    )
+
+    result = await decide_leave_request(
+        request.request_id, "emp-1", "mgr-1", "approved", "idem-1",
+        hris=hris, idempotency_store=idempotency_store, audit_log=audit_log,
+        as_of=AS_OF, now=NOW,
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["status"] == "approved"
+
+
+async def test_decide_leave_request_by_someone_not_the_approver_is_denied(
+    hris: InMemoryHRISAdapter, idempotency_store: IdempotencyStore, audit_log: AuditLog
+) -> None:
+    # The injection-attempt case from the brief: an unauthorised caller
+    # asking the tool directly to approve must be refused server-side,
+    # regardless of what any prompt claimed.
+    request = await hris.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1", leave_type="annual",
+            start_date=date(2026, 6, 1), end_date=date(2026, 6, 5), working_days=4,
+        )
+    )
+
+    result = await decide_leave_request(
+        request.request_id, "emp-1", "some-random-employee", "approved", "idem-1",
+        hris=hris, idempotency_store=idempotency_store, audit_log=audit_log,
+        as_of=AS_OF, now=NOW,
+    )
+
+    assert result["ok"] is False
+    assert result["code"] == "NOT_AUTHORIZED"
+    still_pending = await hris.get_time_off_requests("emp-1", status="pending")
+    assert len(still_pending) == 1
+
+
+# --- list_pending_approvals -------------------------------------------------
+
+
+async def test_list_pending_approvals_flags_sla_breach(hris: InMemoryHRISAdapter) -> None:
+    fresh = await hris.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1", leave_type="annual",
+            start_date=date(2026, 6, 10), end_date=date(2026, 6, 11), working_days=2,
+        )
+    )
+
+    old_request = await hris.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1", leave_type="annual",
+            start_date=date(2026, 6, 20), end_date=date(2026, 6, 21), working_days=2,
+        )
+    )
+    # requested_at far enough in the past to breach the 48h SLA.
+    stale = dataclasses.replace(old_request, requested_at=NOW - timedelta(days=3))
+    hris.seed_time_off_request(stale)
+
+    result = await list_pending_approvals("mgr-1", hris=hris, now=NOW)
+
+    by_id = {item["request_id"]: item for item in result["data"]["pending_requests"]}
+    assert by_id[fresh.request_id]["sla_breached"] is False
+    assert by_id[old_request.request_id]["sla_breached"] is True

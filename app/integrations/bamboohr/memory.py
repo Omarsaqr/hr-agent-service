@@ -21,6 +21,11 @@ class InMemoryHRISAdapter:
     def seed_employee(self, employee: Employee) -> None:
         self._employees[employee.employee_id] = employee
 
+    def seed_time_off_request(self, request: TimeOffRequest) -> None:
+        # For tests that need to control requested_at directly (an SLA
+        # check, say) -- create_time_off_request always stamps "now".
+        self._requests[request.request_id] = request
+
     async def get_employee(self, employee_id: str) -> Employee | None:
         return self._employees.get(employee_id)
 

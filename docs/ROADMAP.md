@@ -8,7 +8,31 @@
 `Depends()`-injected dependencies. This keeps them directly testable without an HTTP
 request/response cycle. Route registration, request/response Pydantic schemas, and auth are real
 remaining work, not done here -- `app/deps.py` builds the singletons (`get_hris_port`,
-`get_nonce_store`) that route handlers will inject when that wiring happens.
+`get_nonce_store`, `get_idempotency_store`, `get_audit_log`) that route handlers will inject when
+that wiring happens.
+
+## Escalation ladder: listing vs. authorization
+
+`resolve_approver` (`app/api/tools/leave.py`) implements the one-level skip-level ladder: if the
+direct manager is inactive, on leave today, or the requester themself, resolution falls through to
+the manager's own manager. `decide_leave_request`'s authorization check calls this resolver fresh,
+so a skip-level manager genuinely can decide a request that escalated to them.
+
+`list_pending_approvals`, however, calls `HRISPort.list_pending_approvals` directly, which only
+returns an employee's *direct* reports. A skip-level manager won't see an escalated request in this
+listing even though they're authorized to decide it -- they'd need to learn the request id some
+other way (an SLA-breach notification, once that job exists). Making the listing itself
+escalation-aware would mean enumerating every employee to find whose *resolved* approver is the
+queried manager, which the current ports don't support cheaply. Noted rather than silently
+inconsistent; not fixed here.
+
+## SLA breach is a predicate, not a job yet
+
+`domain/approvals.is_sla_breached` is real and tested, and `list_pending_approvals` flags each item
+with it. The brief's "auto-escalate and notify both parties" behavior needs a scheduled job to scan
+pending approvals and act on breaches -- no scheduler exists yet (APScheduler lands with the Iqama
+expiry job). Until then, SLA breach is visible to whoever calls `list_pending_approvals`, not
+proactively acted on.
 
 ## Deviations from the task brief
 
