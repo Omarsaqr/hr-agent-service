@@ -5,6 +5,7 @@ from typing import Any, Literal
 from app.config import Settings
 from app.core.audit import AuditLog
 from app.core.errors import ToolError
+from app.core.i18n import format_date_bilingual, to_arabic_indic_numerals
 from app.core.idempotency import IdempotencyStore, NonceStore, compute_request_fingerprint
 from app.core.preview_tokens import (
     TOKEN_TTL,
@@ -125,9 +126,10 @@ async def get_leave_balance(
         f"{taken:g} taken since {leave_year_start.isoformat()})."
     )
     message_ar = (
-        f"لديك {balance:g} يومًا من الإجازة السنوية المتاحة "
-        f"({entitlement:g} يومًا مستحقًا بموجب {citation}، "
-        f"تم أخذ {taken:g} منذ {leave_year_start.isoformat()})."
+        f"لديك {to_arabic_indic_numerals(f'{balance:g}')} يومًا من الإجازة السنوية المتاحة "
+        f"({to_arabic_indic_numerals(f'{entitlement:g}')} يومًا مستحقًا بموجب {citation}، "
+        f"تم أخذ {to_arabic_indic_numerals(f'{taken:g}')} "
+        f"منذ {format_date_bilingual(leave_year_start, 'ar')})."
     )
 
     return {
@@ -222,9 +224,12 @@ async def preview_leave_request(
         f"It will go to {manager.full_name} for approval."
     )
     message_ar = (
-        f"لديك {balance_before:g} يومًا من الإجازة السنوية المتاحة. سيترك هذا الطلب "
-        f"({start_date.isoformat()} إلى {end_date.isoformat()}، {working_days:g} أيام عمل) "
-        f"رصيدك {balance_after:g} يومًا، وسيُرسل إلى {manager.full_name} للموافقة."
+        f"لديك {to_arabic_indic_numerals(f'{balance_before:g}')} يومًا من الإجازة السنوية "
+        f"المتاحة. سيترك هذا الطلب "
+        f"({format_date_bilingual(start_date, 'ar')} إلى {format_date_bilingual(end_date, 'ar')}، "
+        f"{to_arabic_indic_numerals(f'{working_days:g}')} أيام عمل) "
+        f"رصيدك {to_arabic_indic_numerals(f'{balance_after:g}')} يومًا، "
+        f"وسيُرسل إلى {manager.full_name} للموافقة."
     )
 
     return {

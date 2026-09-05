@@ -1,5 +1,17 @@
 # Roadmap and scope decisions
 
+## Bilingual catalogue is primitives-first, not a full migration yet
+
+`app/core/i18n.py` has the substantive pieces: Hijri conversion (tabular algorithm, verified
+against two independently-sourced reference dates rather than trusted from memory -- the commonly
+quoted epoch constant was off by a day against both), Arabic-Indic numeral conversion, script
+detection, and language resolution (detected script overrides the employee's profile default, per
+the brief). It's wired into `get_leave_balance` and `preview_leave_request`'s Arabic messages as
+the demonstration of it working end to end. It is not yet a message-template catalogue that every
+tool's strings are forced through -- the other tools still build `message_ar` as direct f-strings.
+Migrating everything to templates is mechanical, not risky, and deferred rather than done
+half-attentively under time pressure.
+
 ## Tools are plain functions, not yet HTTP endpoints
 
 `get_leave_balance`, `preview_leave_request`, and `verify_preview_for_submission`
