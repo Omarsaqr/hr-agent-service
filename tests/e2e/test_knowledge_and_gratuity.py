@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
+from app.core.company_time import today_in_company_timezone
 from app.domain.models import Employee
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
 from tests.e2e.support import E2EContext
@@ -43,8 +44,12 @@ async def test_gratuity_question_returns_a_computed_estimate(e2e: E2EContext) ->
     # service(hire_date, as_of=today), so a fixed hire date would give a
     # different fractional-year answer depending on which real day this
     # test happens to run on -- same month/day guarantees exactly 10.0
-    # years regardless of when that is.
-    today = date.today()
+    # years regardless of when that is. today_in_company_timezone, not
+    # date.today(): the server computes as_of the same way (chat.py), and
+    # the two disagree for part of every real day on a UTC-timezone test
+    # runner -- exactly the bug this test file already exists to catch
+    # (see test_checkin_workflow.py's own history of the same mistake).
+    today = today_in_company_timezone(datetime.now(UTC))
     try:
         ten_years_ago = today.replace(year=today.year - 10)
     except ValueError:

@@ -468,3 +468,36 @@ just a checkbox for "e2e tests exist." The third was a direct side effect of fix
   would collide on the same idempotency key and the second would be wrongly refused as
   `IDEMPOTENCY_KEY_REUSED`. A real model's tool-call ids are unique per call; the mock needed to match
   that property, not just its interface. Fixed by appending a fresh `uuid.uuid4()` suffix per call.
+
+## CI failed on push: the test suite itself repeated the exact bug it exists to catch
+
+The commit that added `docs/ARCHITECTURE.md`/`DECISIONS.md`/`EDGE_CASES.md` (bbbbf5b) turned green
+locally and failed on GitHub Actions (`ubuntu-latest`) 40 seconds later --
+`tests/e2e/test_checkin_workflow.py::test_checkin_then_manager_sees_it_in_the_team_summary` and
+`test_checkin_replay_with_the_same_wording_does_not_double_count` both failed. Root cause: those two
+tests (plus `test_gratuity_question_returns_a_computed_estimate` in
+`test_knowledge_and_gratuity.py`) computed "today" via naive `date.today()` to build query windows and
+reference dates, while the system under test (`submit_daily_checkin`, and `chat.py`'s `as_of` for
+every read tool) computes "today" via `today_in_company_timezone(datetime.now(UTC))` -- the exact
+`Asia/Riyadh` conversion this project already fixed once, in production code, for this exact reason
+(see the entry above). `date.today()` reflects the *host machine's* local system timezone, which is
+incidental: local development happened to run on a machine set to UTC+3 (the same offset as Riyadh),
+so the two computations agreed on every local run by coincidence, not by correctness. GitHub Actions
+runners default to UTC, where the two disagree for roughly three hours of every real day -- and the
+push happened to land inside that window.
+
+This is worth naming plainly: the tests built specifically to catch "a write and a read disagreeing
+about what day it is" (see above) *reintroduced the same class of bug in their own assertions*, and
+it went undetected through every local run, `git push`, and self-review in this session, surfacing
+only on a CI runner in a different timezone. Local-only verification -- no matter how thorough --
+cannot catch a bug whose only symptom is "this machine's clock happens to agree with the one true
+timezone the code cares about." Fixed by replacing every `date.today()` in the e2e suite with
+`today_in_company_timezone(datetime.now(UTC))`, the same call the production code makes, so the test
+asks "what day does the system consider it" rather than "what day does this machine consider it."
+The gratuity test's `date.today()` usage was, on inspection, arithmetically self-correcting for this
+specific off-by-one-day case (verified by hand across several month/leap-year boundaries -- the
+`completed_months_of_service` day-comparison logic happens to cancel out a one-day shift when the
+reference date shares the same month/day as the reference point), but was changed anyway: correctness
+that depends on an unexamined coincidence in unrelated arithmetic is not a property worth keeping
+even when it happens to hold, especially in a codebase already burned once by exactly this kind of
+assumption.

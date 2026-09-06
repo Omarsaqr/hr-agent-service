@@ -1,8 +1,19 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
+from app.core.company_time import today_in_company_timezone
 from app.domain.models import Employee
 from app.integrations.bamboohr.memory import InMemoryHRISAdapter
 from tests.e2e.support import E2EContext
+
+# Not date.today(): that reflects the test runner's own local system
+# timezone, which is incidental and environment-dependent (it happened
+# to coincide with Asia/Riyadh's offset in local development, masking
+# this exact class of bug -- the one this test suite itself exists to
+# catch -- until it ran on a UTC CI runner). The system under test
+# computes "today" via today_in_company_timezone; this test must use
+# the same computation to ask about the same day, not rely on the
+# runner's local clock agreeing with Riyadh by chance.
+_TODAY = today_in_company_timezone(datetime.now(UTC))
 
 
 def _seed_employee(hris: InMemoryHRISAdapter, **overrides: object) -> None:
@@ -31,7 +42,7 @@ async def test_checkin_then_manager_sees_it_in_the_team_summary(e2e: E2EContext)
     ).json()
     assert checkin["reply"]
 
-    stored = await e2e.dashboard.get_checkins(["emp-1"], date.today(), date.today())
+    stored = await e2e.dashboard.get_checkins(["emp-1"], _TODAY, _TODAY)
     assert len(stored) == 1
     assert stored[0].rating == 4
 
@@ -91,7 +102,7 @@ async def test_checkin_replay_with_the_same_wording_does_not_double_count(
 
     assert first["reply"]
     assert second["reply"]
-    stored = await e2e.dashboard.get_checkins(["emp-1"], date.today(), date.today())
+    stored = await e2e.dashboard.get_checkins(["emp-1"], _TODAY, _TODAY)
     assert len(stored) == 1
     assert stored[0].accomplishments == "final version"
     assert stored[0].rating == 5
