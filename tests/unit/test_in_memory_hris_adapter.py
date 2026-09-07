@@ -182,10 +182,49 @@ async def test_get_time_off_taken_sums_only_approved_requests_since_date() -> No
         )
     )
 
-    taken = await adapter.get_time_off_taken("emp-1", "annual", since=date(2026, 1, 1))
+    taken = await adapter.get_time_off_taken(
+        "emp-1", "annual", since=date(2026, 1, 1), until=date(2026, 12, 31)
+    )
 
     assert taken == 5
     assert pending_request.status == "pending"
+
+
+async def test_get_time_off_taken_excludes_a_request_from_a_later_leave_year() -> None:
+    # Caught against the live BambooHR account: an approved request dated
+    # nearly two years out (a *later* leave year that hasn't started yet)
+    # was being summed into the *current* year's taken total, because the
+    # query had no upper bound at all -- see docs/ROADMAP.md.
+    adapter = InMemoryHRISAdapter()
+    this_year = await adapter.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1",
+            leave_type="annual",
+            start_date=date(2026, 3, 1),
+            end_date=date(2026, 3, 5),
+            working_days=5,
+        )
+    )
+    await adapter.decide_time_off_request(this_year.request_id, "approved", decided_by="mgr-1")
+
+    a_later_leave_year = await adapter.create_time_off_request(
+        TimeOffRequestDraft(
+            employee_id="emp-1",
+            leave_type="annual",
+            start_date=date(2028, 4, 1),
+            end_date=date(2028, 4, 3),
+            working_days=3,
+        )
+    )
+    await adapter.decide_time_off_request(
+        a_later_leave_year.request_id, "approved", decided_by="mgr-1"
+    )
+
+    taken = await adapter.get_time_off_taken(
+        "emp-1", "annual", since=date(2026, 1, 1), until=date(2026, 12, 31)
+    )
+
+    assert taken == 5
 
 
 async def test_decide_time_off_request_does_not_mutate_the_original_object() -> None:

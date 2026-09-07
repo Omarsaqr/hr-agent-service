@@ -89,10 +89,12 @@ class BambooHRAdapter:
         self._employee_cache.set(f"phone:{phone_number}", employee)
         return employee
 
-    async def get_time_off_taken(self, employee_id: str, leave_type: str, since: date) -> float:
+    async def get_time_off_taken(
+        self, employee_id: str, leave_type: str, since: date, until: date
+    ) -> float:
         bamboohr_type_name = await self._resolve_bamboohr_leave_type_name(leave_type)
         raw_requests = await self._client.get_time_off_requests(
-            employee_id, start=since.isoformat(), end=date.max.isoformat()
+            employee_id, start=since.isoformat(), end=until.isoformat()
         )
         return sum(
             float(raw["amount"]["amount"])

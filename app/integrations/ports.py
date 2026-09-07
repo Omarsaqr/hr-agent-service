@@ -27,8 +27,15 @@ class HRISPort(Protocol):
         """phone_number must be E.164; raises AmbiguousEmployeeError on more than one match."""
         ...
 
-    async def get_time_off_taken(self, employee_id: str, leave_type: str, since: date) -> float:
-        """Days of `leave_type` taken since `since` -- domain/ computes entitlement and balance."""
+    async def get_time_off_taken(
+        self, employee_id: str, leave_type: str, since: date, until: date
+    ) -> float:
+        """Days of `leave_type` taken in [since, until] inclusive -- both
+        bounds required, not just `since`: without an upper bound, an
+        approved request dated in a *later* leave year gets counted
+        against the current one. Callers pass the current leave year's
+        bounds from domain.entitlements.current_leave_year_bounds.
+        """
         ...
 
     async def create_time_off_request(self, draft: TimeOffRequestDraft) -> TimeOffRequest: ...

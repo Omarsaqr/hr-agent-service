@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from app.domain.countries import COUNTRY_POLICIES, AnnualLeavePolicy, EntitlementTier
 from app.domain.entitlements import (
@@ -6,7 +6,7 @@ from app.domain.entitlements import (
     annual_leave_balance,
     annual_leave_entitlement,
     completed_months_of_service,
-    current_leave_year_start,
+    current_leave_year_bounds,
 )
 
 
@@ -98,30 +98,57 @@ def test_annual_leave_balance_can_go_negative_rather_than_clamp() -> None:
     assert annual_leave_balance(entitlement_days=14, taken_days=20) == -6
 
 
-def test_current_leave_year_start_before_this_years_anniversary() -> None:
+def test_current_leave_year_bounds_before_this_years_anniversary() -> None:
     hired = date(2021, 11, 1)
 
-    assert current_leave_year_start(hired, date(2026, 10, 15)) == date(2025, 11, 1)
+    assert current_leave_year_bounds(hired, date(2026, 10, 15)) == (
+        date(2025, 11, 1),
+        date(2026, 10, 31),
+    )
 
 
-def test_current_leave_year_start_on_the_anniversary_itself() -> None:
+def test_current_leave_year_bounds_on_the_anniversary_itself() -> None:
     hired = date(2021, 11, 1)
 
-    assert current_leave_year_start(hired, date(2026, 11, 1)) == date(2026, 11, 1)
+    assert current_leave_year_bounds(hired, date(2026, 11, 1)) == (
+        date(2026, 11, 1),
+        date(2027, 10, 31),
+    )
 
 
-def test_current_leave_year_start_after_this_years_anniversary() -> None:
+def test_current_leave_year_bounds_after_this_years_anniversary() -> None:
     hired = date(2021, 11, 1)
 
-    assert current_leave_year_start(hired, date(2026, 11, 2)) == date(2026, 11, 1)
+    assert current_leave_year_bounds(hired, date(2026, 11, 2)) == (
+        date(2026, 11, 1),
+        date(2027, 10, 31),
+    )
 
 
-def test_current_leave_year_start_handles_a_leap_day_hire_date() -> None:
+def test_current_leave_year_bounds_handles_a_leap_day_hire_date() -> None:
     hired = date(2020, 2, 29)
 
     # 2026 isn't a leap year, so the anniversary falls back to Feb 28;
-    # by March 1 that anniversary has already passed this year.
-    assert current_leave_year_start(hired, date(2026, 3, 1)) == date(2026, 2, 28)
+    # by March 1 that anniversary has already passed this year. The next
+    # one falls back the same way, to 2027-02-28, one day before which
+    # closes out the leave year.
+    assert current_leave_year_bounds(hired, date(2026, 3, 1)) == (
+        date(2026, 2, 28),
+        date(2027, 2, 27),
+    )
+
+
+def test_current_leave_year_bounds_end_excludes_a_request_dated_the_next_leave_year() -> None:
+    # This is the property that actually matters for get_time_off_taken:
+    # a date one day past `end` belongs to the *next* leave year, not
+    # this one -- verified directly here, not just indirectly through
+    # whatever HRISPort implementation happens to consume it.
+    hired = date(2021, 11, 1)
+
+    _, end = current_leave_year_bounds(hired, date(2026, 10, 15))
+
+    assert end == date(2026, 10, 31)
+    assert end + timedelta(days=1) == date(2026, 11, 1)  # the next anniversary
 
 
 def test_a_flat_country_with_no_further_tiers_needs_no_code_change() -> None:

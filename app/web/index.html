@@ -136,7 +136,12 @@
 <header>
   <h1>HR Assistant</h1>
   <label>Employee ID
-    <input type="text" id="employeeId" placeholder="e.g. emp-1" value="emp-1" />
+    <!-- "9" is a real, verified id in the live BambooHR trial account this
+         demo currently points HRIS_DRIVER=bamboohr at (Jennifer Caldwell) --
+         not a made-up placeholder. If the account's data changes again, or
+         HRIS_DRIVER switches to "memory", update this to an id that
+         actually exists for whichever driver is active. -->
+    <input type="text" id="employeeId" placeholder="a real employee id for the active driver" value="9" />
   </label>
   <div class="spacer"></div>
   <button id="resetButton" type="button">New conversation</button>

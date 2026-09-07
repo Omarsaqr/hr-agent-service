@@ -24,7 +24,7 @@ from app.domain.entitlements import (
     annual_leave_balance,
     annual_leave_entitlement,
     completed_months_of_service,
-    current_leave_year_start,
+    current_leave_year_bounds,
 )
 from app.domain.models import Employee, TimeOffRequestDraft
 from app.integrations.ports import HRISPort
@@ -107,8 +107,12 @@ async def get_leave_balance(
     age = age_in_years(employee.birth_date, as_of) if employee.birth_date else None
     entitlement = annual_leave_entitlement(policy.annual_leave, completed_months, age)
 
-    leave_year_start = current_leave_year_start(employee.employment_start_date, as_of)
-    taken = await hris.get_time_off_taken(employee_id, leave_type, since=leave_year_start)
+    leave_year_start, leave_year_end = current_leave_year_bounds(
+        employee.employment_start_date, as_of
+    )
+    taken = await hris.get_time_off_taken(
+        employee_id, leave_type, since=leave_year_start, until=leave_year_end
+    )
     balance = annual_leave_balance(entitlement, taken)
 
     citation = policy.annual_leave.citation
@@ -181,8 +185,12 @@ async def preview_leave_request(
     age = age_in_years(employee.birth_date, as_of) if employee.birth_date else None
     entitlement = annual_leave_entitlement(policy.annual_leave, completed_months, age)
 
-    leave_year_start = current_leave_year_start(employee.employment_start_date, as_of)
-    taken = await hris.get_time_off_taken(employee_id, leave_type, since=leave_year_start)
+    leave_year_start, leave_year_end = current_leave_year_bounds(
+        employee.employment_start_date, as_of
+    )
+    taken = await hris.get_time_off_taken(
+        employee_id, leave_type, since=leave_year_start, until=leave_year_end
+    )
     balance_before = annual_leave_balance(entitlement, taken)
     balance_after = balance_before - working_days
 
@@ -341,9 +349,11 @@ async def _verify_preview(
     completed_months = completed_months_of_service(employee.employment_start_date, as_of)
     age = age_in_years(employee.birth_date, as_of) if employee.birth_date else None
     entitlement_now = annual_leave_entitlement(policy.annual_leave, completed_months, age)
-    leave_year_start = current_leave_year_start(employee.employment_start_date, as_of)
+    leave_year_start, leave_year_end = current_leave_year_bounds(
+        employee.employment_start_date, as_of
+    )
     taken_now = await hris.get_time_off_taken(
-        payload["employee_id"], payload["leave_type"], since=leave_year_start
+        payload["employee_id"], payload["leave_type"], since=leave_year_start, until=leave_year_end
     )
     balance_before_now = annual_leave_balance(entitlement_now, taken_now)
 

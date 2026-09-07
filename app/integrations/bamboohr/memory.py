@@ -35,14 +35,16 @@ class InMemoryHRISAdapter:
             raise AmbiguousEmployeeError(phone_number, [e.employee_id for e in matches])
         return matches[0] if matches else None
 
-    async def get_time_off_taken(self, employee_id: str, leave_type: str, since: date) -> float:
+    async def get_time_off_taken(
+        self, employee_id: str, leave_type: str, since: date, until: date
+    ) -> float:
         return sum(
             request.working_days
             for request in self._requests.values()
             if request.employee_id == employee_id
             and request.leave_type == leave_type
             and request.status == "approved"
-            and request.start_date >= since
+            and since <= request.start_date <= until
         )
 
     async def create_time_off_request(self, draft: TimeOffRequestDraft) -> TimeOffRequest:

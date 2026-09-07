@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from app.domain.countries import AnnualLeavePolicy, EntitlementTier
 
@@ -26,13 +26,20 @@ def years_of_service(employment_start_date: date, as_of: date) -> float:
     return completed_months_of_service(employment_start_date, as_of) / 12.0
 
 
-def current_leave_year_start(employment_start_date: date, as_of: date) -> date:
-    """The most recent hire-date anniversary on or before `as_of`.
+def current_leave_year_bounds(employment_start_date: date, as_of: date) -> tuple[date, date]:
+    """The (start, end) of the leave year containing `as_of` -- the most
+    recent hire-date anniversary on or before `as_of`, through the day
+    before the next one.
 
     Entitlement accrues per year of service from the hire date, not the
-    calendar year, so "days taken" must be scoped the same way -- taken
-    days from a previous service year shouldn't suppress this year's
-    balance.
+    calendar year, so "days taken" must be scoped the same way on *both*
+    ends -- taken days from a previous or future service year shouldn't
+    affect this year's balance. This end bound is load-bearing, not
+    decorative: `HRISPort.get_time_off_taken`'s `until` parameter must be
+    computed from this function, not a separate inline calculation, or
+    the two can silently drift out of sync the way `since` alone once did
+    (an approved request dated in a later leave year was being counted
+    against the current one -- see docs/ROADMAP.md).
     """
 
     def anniversary_in(year: int) -> date:
@@ -43,7 +50,9 @@ def current_leave_year_start(employment_start_date: date, as_of: date) -> date:
             return employment_start_date.replace(year=year, day=28)
 
     this_year = anniversary_in(as_of.year)
-    return this_year if this_year <= as_of else anniversary_in(as_of.year - 1)
+    start = this_year if this_year <= as_of else anniversary_in(as_of.year - 1)
+    end = anniversary_in(start.year + 1) - timedelta(days=1)
+    return start, end
 
 
 def _tier_qualifies(

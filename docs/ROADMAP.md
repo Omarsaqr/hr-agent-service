@@ -175,6 +175,21 @@ things a fixture-only build would not have caught:
 - **BambooHR blocks self-approval.** Attempting to approve the account owner's own pending request
   returned `403 Forbidden`. Not handled specially here (it surfaces as an `httpx.HTTPStatusError`)
   but worth knowing before assuming any employee can decide any request they're authorised for.
+- **`get_time_off_taken` had no upper bound.** Re-verifying three real employees' leave balances
+  against the live account (not the original demo fixtures) turned up a balance of -15 days for an
+  employee entitled to 21. The approved requests behind that number included five days dated in
+  **2028** -- a leave year that hasn't started yet -- pulled in because the query only ever had a
+  lower bound (`since`) and no upper one: `BambooHRAdapter` queried through `date.max`, and
+  `InMemoryHRISAdapter` had no upper filter at all. Scoped correctly to the employee's actual
+  2025-11-01–2026-10-31 leave year, the true balance is -6 -- still genuinely over-drawn, just not by
+  that much. Fixed by adding a required `until` parameter to `HRISPort.get_time_off_taken`, computed
+  from one new function, `domain/entitlements.py`'s `current_leave_year_bounds`, that returns both
+  ends of "which leave year is this" rather than leaving the upper bound to be derived separately
+  wherever it's needed. This is the third time exercising this adapter against the real account, not
+  fixtures, caught a bug fixtures couldn't: the tenant-specific leave-type name guess and the
+  inferred `create_time_off_request` payload shape, both above, were the first two. All three share
+  the same shape -- a reasonable-looking assumption that fixtures, built from that same assumption,
+  could never have contradicted.
 
 ## Google Sheets dashboard adapter: built real, verified against no live spreadsheet
 

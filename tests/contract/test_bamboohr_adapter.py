@@ -136,9 +136,38 @@ async def test_get_time_off_taken_sums_only_matching_approved_requests(
 
     # "annual" is the domain key; resolving it to "Annual Leave/Holiday"
     # (this tenant's actual configured name) is the thing being tested.
-    taken = await adapter.get_time_off_taken("142", "annual", since=date(2026, 1, 1))
+    taken = await adapter.get_time_off_taken(
+        "142", "annual", since=date(2026, 1, 1), until=date(2026, 12, 31)
+    )
 
     # 5 days approved; the 2-day request is still "requested", not counted.
+    assert taken == 5.0
+
+
+@respx.mock
+async def test_get_time_off_taken_bounds_the_query_by_the_until_date(
+    adapter: BambooHRAdapter,
+) -> None:
+    # Caught against the live account: this call used to query through
+    # date.max regardless of what "until" the caller actually wanted,
+    # which let an approved request from a *later* leave year count
+    # against the current one (see docs/ROADMAP.md). Only a request whose
+    # query params match this exact [since, until] window is mocked --
+    # if the adapter ever reverts to an unbounded query, respx has
+    # nothing else registered and this fails loudly instead of silently
+    # summing whatever an unbounded call happens to return.
+    respx.get(f"{_BASE_URL}/meta/time_off/types").mock(
+        return_value=httpx.Response(200, json=_load("time_off_types.json"))
+    )
+    respx.get(
+        f"{_BASE_URL}/time_off/requests",
+        params={"employeeId": "142", "start": "2026-01-01", "end": "2026-12-31"},
+    ).mock(return_value=httpx.Response(200, json=_load("time_off_requests_142.json")))
+
+    taken = await adapter.get_time_off_taken(
+        "142", "annual", since=date(2026, 1, 1), until=date(2026, 12, 31)
+    )
+
     assert taken == 5.0
 
 
@@ -151,7 +180,9 @@ async def test_get_time_off_taken_raises_when_mapping_does_not_match_the_tenant(
     )
 
     with pytest.raises(LeaveTypeMappingError):
-        await adapter.get_time_off_taken("142", "annual", since=date(2026, 1, 1))
+        await adapter.get_time_off_taken(
+            "142", "annual", since=date(2026, 1, 1), until=date(2026, 12, 31)
+        )
 
 
 @respx.mock
