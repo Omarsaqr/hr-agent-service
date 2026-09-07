@@ -39,6 +39,17 @@ def _function_call_response(name: str, args: dict[str, Any]) -> types.GenerateCo
     return types.GenerateContentResponse(candidates=[types.Candidate(content=content)])
 
 
+def _function_call_response_with_signature(
+    name: str, args: dict[str, Any], signature: bytes
+) -> types.GenerateContentResponse:
+    part = types.Part(
+        function_call=types.FunctionCall(id="call-1", name=name, args=args),
+        thought_signature=signature,
+    )
+    content = types.Content(role="model", parts=[part])
+    return types.GenerateContentResponse(candidates=[types.Candidate(content=content)])
+
+
 async def test_text_reply_produces_a_final_assistant_message() -> None:
     fake_client = _FakeClient(_text_response("You have 12 days."))
     adapter = GeminiLLMAdapter(fake_client, model="gemini-2.5-flash")  # type: ignore[arg-type]
@@ -123,3 +134,43 @@ async def test_full_history_round_trip_including_a_tool_result() -> None:
         "ok": True,
         "message_en": "Recorded.",
     }
+
+
+async def test_thought_signature_is_replayed_on_a_later_turn() -> None:
+    # Confirmed against the live API (not discoverable from a fixture):
+    # current-generation Gemini models reject a replayed function call
+    # that doesn't carry back the exact thought_signature bytes from the
+    # turn that produced it -- 400 INVALID_ARGUMENT, "Function call is
+    # missing a thought_signature in functionCall parts" -- see
+    # docs/ROADMAP.md. The signature lives on the Part, sibling to
+    # function_call, not inside FunctionCall itself, so it can't ride
+    # along on ToolCall.id -- the adapter has to remember it out of band
+    # and reattach it when the same call is replayed.
+    signature = b"\x12\xc9\x02opaque-signature-bytes"
+    fake_client = _FakeClient(
+        _function_call_response_with_signature("get_leave_balance", {}, signature)
+    )
+    adapter = GeminiLLMAdapter(fake_client, model="gemini-2.5-flash")  # type: ignore[arg-type]
+
+    first_result = await adapter.generate(
+        "system prompt", [Message(role="user", text="balance?")], tools=[]
+    )
+    call_id = first_result.tool_calls[0].id
+
+    history = [
+        Message(role="user", text="balance?"),
+        first_result,
+        Message(
+            role="tool",
+            tool_call_id=call_id,
+            tool_name="get_leave_balance",
+            tool_result={"balance": 12},
+        ),
+    ]
+
+    await adapter.generate("system prompt", history, tools=[])
+
+    assert fake_client.aio.models.last_call is not None
+    sent_contents = fake_client.aio.models.last_call["contents"]
+    replayed_part = sent_contents[1].parts[0]
+    assert replayed_part.thought_signature == signature

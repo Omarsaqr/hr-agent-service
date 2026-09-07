@@ -14,9 +14,14 @@ from app.integrations.llm.ports import Message, ToolCall, ToolSpec
 # Interactions API's exact request/response contract could not be
 # verified without a live key. It also keeps conversation state in this
 # process (SessionStore), which MockLLMAdapter needs anyway to share the
-# same LLMPort interface. See docs/ROADMAP.md for what is and isn't
-# verified here -- there is no live API key in this environment, so
-# nothing below has been exercised against a real response.
+# same LLMPort interface.
+#
+# Now exercised against a real key and a real model (gemini-3.6-flash --
+# gemini-2.5-flash, the model this was first built against, was cut off
+# for new users before this could be tried live): plain text and
+# tool-calling both work end to end. That live run also caught a real
+# gap fixtures couldn't -- see _thought_signatures below and
+# docs/ROADMAP.md.
 _MODEL_ROLE = "model"
 _USER_ROLE = "user"
 
@@ -32,11 +37,25 @@ class GeminiLLMAdapter:
     def __init__(self, client: genai.Client, model: str) -> None:
         self._client = client
         self._model = model
+        # Keyed by tool-call id, populated in _extract_tool_calls. Current-
+        # generation Gemini models require this exact opaque signature
+        # echoed back on any later turn that replays the function call it
+        # came from -- confirmed live, not discoverable from a fixture --
+        # or they reject the request with 400 INVALID_ARGUMENT ("Function
+        # call is missing a thought_signature"). See docs/ROADMAP.md. It
+        # lives on the response Part, not on FunctionCall, so it can't
+        # ride along on ToolCall itself without leaking a Gemini-specific
+        # concept into the provider-agnostic type the mock adapter also
+        # uses -- hence tracked here instead, as adapter-private state.
+        # Process-lifetime and unbounded, same as SessionStore's own
+        # history: fine at this scale, not something a long-lived
+        # production process should copy unmodified.
+        self._thought_signatures: dict[str, bytes] = {}
 
     async def generate(
         self, system_prompt: str, history: list[Message], tools: list[ToolSpec]
     ) -> Message:
-        contents = [_to_content(message) for message in history]
+        contents = [_to_content(message, self._thought_signatures) for message in history]
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=[_to_tool(tools)] if tools else None,
@@ -51,17 +70,28 @@ class GeminiLLMAdapter:
             model=self._model, contents=contents, config=config
         )
 
-        function_calls = response.function_calls or []
-        if function_calls:
-            return Message(
-                role="assistant",
-                text=None,
-                tool_calls=[
-                    ToolCall(id=fc.id or fc.name or "", name=fc.name or "", arguments=fc.args or {})
-                    for fc in function_calls
-                ],
-            )
+        tool_calls = self._extract_tool_calls(response)
+        if tool_calls:
+            return Message(role="assistant", text=None, tool_calls=tool_calls)
         return Message(role="assistant", text=response.text or "")
+
+    def _extract_tool_calls(self, response: types.GenerateContentResponse) -> list[ToolCall]:
+        # Walks the raw Parts rather than the response.function_calls
+        # shortcut so each FunctionCall stays paired with its own sibling
+        # thought_signature, not correlated back to it by list position.
+        content = response.candidates[0].content if response.candidates else None
+        parts = content.parts if content and content.parts else []
+
+        tool_calls = []
+        for part in parts:
+            fc = part.function_call
+            if fc is None:
+                continue
+            call_id = fc.id or fc.name or ""
+            if part.thought_signature is not None:
+                self._thought_signatures[call_id] = part.thought_signature
+            tool_calls.append(ToolCall(id=call_id, name=fc.name or "", arguments=fc.args or {}))
+        return tool_calls
 
 
 def _to_tool(tools: list[ToolSpec]) -> types.Tool:
@@ -77,7 +107,7 @@ def _to_tool(tools: list[ToolSpec]) -> types.Tool:
     )
 
 
-def _to_content(message: Message) -> types.Content:
+def _to_content(message: Message, thought_signatures: dict[str, bytes]) -> types.Content:
     if message.role == "user":
         return types.Content(role=_USER_ROLE, parts=[types.Part(text=message.text or "")])
 
@@ -87,7 +117,8 @@ def _to_content(message: Message) -> types.Content:
                 types.Part(
                     function_call=types.FunctionCall(
                         id=call.id, name=call.name, args=call.arguments
-                    )
+                    ),
+                    thought_signature=thought_signatures.get(call.id),
                 )
                 for call in message.tool_calls
             ]

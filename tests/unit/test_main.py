@@ -1,8 +1,23 @@
+import pytest
 from fastapi.testclient import TestClient
 
+import app.deps as deps_module
+from app.integrations.llm.mock import MockLLMAdapter
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _force_mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests assert on MockLLMAdapter's specific deterministic
+    # replies ("confirm", the leave-request phrasing below), so they
+    # need mock regardless of what LLM_DRIVER the real .env is currently
+    # set to (e.g. gemini, for live-key testing against the dev server).
+    # Same reasoning as tests/e2e/conftest.py's e2e fixture -- see
+    # docs/ROADMAP.md for the gap this closes.
+    settings = app.state.settings
+    monkeypatch.setitem(deps_module._llm_port_cache, settings.llm_driver, MockLLMAdapter())
 
 
 def test_health_returns_ok() -> None:

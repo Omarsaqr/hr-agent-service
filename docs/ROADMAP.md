@@ -359,13 +359,18 @@ and OpenAI both require a paid key (their trial credit isn't a standing free tie
 API has a real, sustained free tier and native tool-calling. Verified rather than assumed, twice
 over, because this area is unusually fast-moving:
 - **The model name.** Training-data recall would have hardcoded `gemini-1.5-flash` or `2.0-flash` --
-  both already shut down. Live docs (fetched during this build) show the current model line is
-  Gemini 3.x, with 2.5 Flash/Pro scheduled to shut down 2026-10-16. `gemini-2.5-flash` is confirmed
-  free-tier eligible today and used as the default, but it's a `GEMINI_MODEL` setting, not a
-  hardcoded literal, specifically because it's known to have an expiry date. Google's `-latest`
-  alias family was deliberately not used as the default instead -- it has a documented history of
-  silently 404ing when the version behind it is deprecated, which is worse than an explicit pin that
-  needs a one-line bump.
+  both already shut down. Live docs (fetched during this build) showed the current model line was
+  Gemini 3.x, with 2.5 Flash/Pro scheduled to shut down 2026-10-16 -- `gemini-2.5-flash` was kept as
+  the default anyway, deliberately as a `GEMINI_MODEL` setting rather than a hardcoded literal,
+  specifically because it was known to have an expiry date. That mattered sooner than the documented
+  date suggested: the first live key tried against this project (2026-09-07) got `404 NOT_FOUND` from
+  `gemini-2.5-flash`, with the response body reading `This model ... is no longer available to new
+  users` -- the cutoff for *new* users, evidently, lands before the model's full shutdown for
+  everyone else. Fixed with exactly the one-line env change this was built for:
+  `GEMINI_MODEL=gemini-3.6-flash`, Google's own error message naming the replacement, no code
+  touched. Google's `-latest` alias family was still deliberately not used instead -- it has a
+  documented history of silently 404ing when the version behind it is deprecated, which is worse than
+  an explicit pin that needs a one-line bump.
 - **The API shape.** Google's current docs push a newer "Interactions API" (`client.interactions`)
   for function calling; this adapter is built against the older, still-present `generate_content` +
   manually-managed `Content`/`Part` history instead. Chosen deliberately, not out of inertia: every
@@ -375,13 +380,36 @@ over, because this area is unusually fast-moving:
   also keeps conversation history in this process, which the credential-free mock driver needs
   anyway to implement the same `LLMPort` interface.
 
-**Not verified: an actual call to Gemini's servers.** No API key exists in this environment.
-`tests/contract/test_gemini_llm_adapter.py` verifies `GeminiLLMAdapter`'s translation logic against
-a fake client built from the SDK's real (pydantic) types -- so the adapter is provably feeding the
-SDK well-formed objects -- but nothing here has round-tripped a real HTTP call. The one specific risk
-this can't rule out: whether Gemini's server actually expects a function-response turn wrapped in
-`role="user"` (the documented convention this was built against) versus something else. First thing
-to check if `LLM_DRIVER=gemini` doesn't work once a real key is added.
+**Verified live, once a real key existed.** Both paths work end to end against `gemini-3.6-flash`: a
+plain-text reply, and a full tool-calling round trip -- model calls `get_leave_balance`, the app
+executes it against the live BambooHR account, the result goes back to Gemini, Gemini produces the
+final reply -- exercised through the actual `/chat` endpoint, not just the adapter in isolation.
+`role="user"` for a function-response turn (the one specific risk flagged here before a key existed)
+is indeed what Gemini's server expects; that part needed no fix.
+
+One real bug surfaced that no fixture could have: the second call in that round trip failed with
+`400 INVALID_ARGUMENT`, `Function call is missing a thought_signature in functionCall parts`.
+Current-generation Gemini models require that exact opaque value (`bytes`, carried on the response
+`Part` as a sibling of `function_call`, not inside `FunctionCall` itself) echoed back on any later
+turn that replays the call it came from. `GeminiLLMAdapter` now caches it by tool-call id
+(`_thought_signatures`, adapter-private state -- deliberately not added to the shared `Message`/
+`ToolCall` types the mock adapter also uses, since it's a Gemini-specific concept the mock has no use
+for) and reattaches it when reconstructing history for the next call. See
+`tests/contract/test_gemini_llm_adapter.py::test_thought_signature_is_replayed_on_a_later_turn`,
+written failing against the pre-fix code first, the same discipline as the Egypt age-tier bug.
+
+Verifying this live surfaced a second bug, in the test suite rather than the adapter: switching
+`LLM_DRIVER` to `gemini` in `.env` (to test the real key) broke nine tests across `tests/e2e/` and
+`tests/unit/test_main.py`, all of them asserting on `MockLLMAdapter`'s specific deterministic replies
+-- and burning a real API call per test in the process. `tests/e2e/conftest.py`'s `e2e` fixture
+already overrides the HRIS and Dashboard ports via `monkeypatch.setitem` so tests never depend on
+whichever real driver `.env` happens to have configured (see above) -- but nobody had done the same
+for the LLM port, because until now `.env`'s default (`mock`) and what these tests needed had simply
+always agreed. Fixed by giving the LLM port the identical override, plus a small `autouse` fixture in
+`test_main.py` for the two module-level tests outside the `e2e` fixture's scope. Same shape as the CI
+timezone bug and the `get_time_off_taken` bug elsewhere in this document: a thing that worked was
+actually two things that happened to agree, until a change nothing here was fixture-testing for made
+them disagree.
 
 **Identity is bound server-side, never supplied by the model.** Every tool's JSON schema
 (`app/agent/tools.py`) omits the parameter that would identify "the current user" -- `employee_id`
