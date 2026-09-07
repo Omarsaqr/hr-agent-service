@@ -433,6 +433,22 @@ timezone bug and the `get_time_off_taken` bug elsewhere in this document: a thin
 actually two things that happened to agree, until a change nothing here was fixture-testing for made
 them disagree.
 
+**Tool selection is not reliable at the default temperature -- and lowering it doesn't fully fix
+that.** An unambiguous Arabic leave request ("I want to request leave from &lt;date&gt; to
+&lt;date&gt;", the same structural shape verified working above) was, in later live testing on a
+different day, twice routed to `answer_hr_question` instead of `preview_leave_request` -- once
+returning the sick-leave-certificate SOP chunk, once the Egypt annual-leave policy chunk, neither
+requested. `GenerateContentConfig` had no `temperature` set (the SDK default, roughly 1.0, is tuned
+for creative variation, not consistent tool routing); setting `temperature=0` was the obvious fix and
+is still correct practice to keep, but a repeat test *after* that fix, with a fresh never-tried date,
+produced a third wrong tool call -- so temperature was not the whole explanation, or gemini-3.6-flash
+is not perfectly deterministic at temperature 0 regardless (both are documented possibilities across
+major providers; nothing here distinguishes which). Net honest conclusion: this specific phrasing
+pattern is not reliable enough to depend on for a one-take live demo. `MockLLMAdapter` has no such
+failure mode -- it does not "decide" between tools at all, it pattern-matches deterministically --
+which is itself worth stating plainly: the mock's determinism is a real property being relied on
+here, not just a placeholder's side effect.
+
 **Identity is bound server-side, never supplied by the model.** Every tool's JSON schema
 (`app/agent/tools.py`) omits the parameter that would identify "the current user" -- `employee_id`
 for self-service tools, `decider_employee_id`/`manager_id` for approval and team tools. `ToolContext`

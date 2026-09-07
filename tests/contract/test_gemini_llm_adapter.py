@@ -96,6 +96,7 @@ async def test_sends_tool_declarations_and_disables_automatic_function_calling()
     assert sent_config.tools[0].function_declarations[0].name == "get_leave_balance"
     assert sent_config.automatic_function_calling.disable is True
     assert sent_config.system_instruction == "system prompt"
+    assert sent_config.temperature == 0
 
 
 async def test_full_history_round_trip_including_a_tool_result() -> None:

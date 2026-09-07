@@ -64,6 +64,15 @@ class GeminiLLMAdapter:
             # no way to provide), so automatic function calling must
             # stay off regardless of whether it would otherwise trigger.
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            # Confirmed live: with the SDK's default (unset -> ~1.0),
+            # an unambiguous leave request ("I want to request leave
+            # from <date> to <date>") was occasionally routed to
+            # answer_hr_question instead of preview_leave_request --
+            # the knowledge tool, not a leave one. Tool selection isn't
+            # a place this system wants creative variation; 0 asks for
+            # the most likely tool every time, not a sample from the
+            # distribution over plausible ones.
+            temperature=0,
         )
 
         response = await self._client.aio.models.generate_content(
