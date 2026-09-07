@@ -191,20 +191,42 @@ things a fixture-only build would not have caught:
   the same shape -- a reasonable-looking assumption that fixtures, built from that same assumption,
   could never have contradicted.
 
-## Google Sheets dashboard adapter: built real, verified against no live spreadsheet
+## Google Sheets dashboard adapter: built real, now verified against a live spreadsheet
 
 `GoogleSheetsAdapter` and `GoogleSheetsClient` (`app/integrations/sheets/`) are a real Sheets API v4
 integration -- OAuth2 service-account auth (JWT Bearer flow, RFC 7523), `values.get`/`values.append`
-over httpx, retried through the same `request_with_retry` every other vendor uses. Unlike the
-BambooHR adapter, this one was built with no Google Cloud project available, so `DASHBOARD_DRIVER`
-defaults to `memory` and nothing here has been exercised against a real spreadsheet. What's actually
-covered: `tests/contract/test_google_sheets_adapter.py` runs the full request/response flow through
+over httpx, retried through the same `request_with_retry` every other vendor uses. Originally built
+with no Google Cloud project available, so `DASHBOARD_DRIVER` defaults to `memory` and this ran
+unverified against a real spreadsheet for most of the project. What's covered independent of a live
+account: `tests/contract/test_google_sheets_adapter.py` runs the full request/response flow through
 `respx`, including real JWT construction and RSA-SHA256 signing (`google.auth.jwt.encode` +
 `google.auth.crypt.RSASigner`) against a throwaway locally-generated key -- so the auth code path is
 exercised end-to-end, just not against Google's actual token endpoint. `.env.example` documents
 exactly what running this for real requires: a GCP project with the Sheets API enabled, a service
 account with a downloaded JSON key, and a spreadsheet shared with that service account's email as an
 Editor.
+
+**Now verified live, once a real service account and spreadsheet existed.** JWT signing, the
+token-endpoint exchange, and both `values.get`/`values.append` all confirmed against Google's actual
+servers -- no fixture involved. Full round trip exercised through the real `/chat` endpoint too, not
+just the client in isolation: a natural-language check-in (real BambooHR employee, real Gemini
+parsing it into a `submit_daily_checkin` call) landed as a real row in the real spreadsheet, read
+back afterward to confirm. No bugs found this time -- the contract tests' respx-simulated request/
+response shapes matched the live API exactly.
+
+**One thing this surfaced that's a design choice, not a gap: the adapter validates headers, it
+doesn't create them.** `GoogleSheetsAdapter._ensure_headers_valid` raises `HeaderMismatchError` on a
+missing or wrong header row rather than writing the expected one -- deliberately, the same reasoning
+as `BambooHRAdapter` raising `LeaveTypeMappingError` instead of silently treating a wrong mapping as
+"zero days taken": a mismatched sheet far more likely means "wrong spreadsheet configured" than
+"please set one up for me," and failing loudly beats guessing. A brand-new spreadsheet has none of
+this (Google gives it one blank default tab and nothing else), so getting from that to something
+`GoogleSheetsAdapter` accepts is a one-time setup step -- create a tab named to match
+`GOOGLE_SHEETS_SHEET_NAME` (`checkins` by default) and write `GoogleSheetsAdapter._EXPECTED_HEADERS`
+as its first row -- not something this session added as a runtime feature. Done here with a one-off
+script using `GoogleSheetsClient`'s existing methods plus one raw `spreadsheets.batchUpdate` call for
+the tab itself (the one operation this client has no method for, since the shipped adapter never
+needs to create a sheet, only read and append to one that already exists).
 
 **New dependency: `google-auth`.** Needed for RSA-SHA256 JWT signing, which is not something to
 hand-roll (it's security-sensitive, credential-adjacent code). Deliberately not
