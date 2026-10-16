@@ -1,23 +1,38 @@
 # HR Agent Service
 
 A tool layer for an HR agent covering two workflows -- leave management and daily check-ins/team
-performance -- for a multi-country industrial company (Saudi Arabia, UAE, Egypt, Jordan). In
-production this sits behind HeyLua.ai (the agent/WhatsApp layer) and BambooHR (the HRIS); this repo
-also includes a small local agent runtime and web portal so the whole thing can be run and reviewed
-standalone, with zero external credentials.
+performance -- for a multi-country industrial company (Saudi Arabia, UAE, Egypt, Jordan). Designed to
+sit behind HeyLua.ai (the agent/WhatsApp layer) and BambooHR (the HRIS); this repo also includes a
+small local agent runtime and web portal so the whole thing can be run and reviewed standalone, with
+zero external credentials.
 
-## Why workflows 2 and 4
+## What this demonstrates
 
-The brief listed several candidate workflows; this submission builds two, completely, rather than
-several, shallowly. Leave management (balance, preview, submit, approve, escalation) and daily
-check-ins/team performance (check-in, missing-check-in detection, weekly summary) were chosen
-because together they exercise two genuinely different classes of problem: leave management is a
-stateful, money-adjacent approval workflow (entitlement math, signed two-phase writes, server-side
-authorization), while check-ins are high-frequency, low-stakes, and exercise different concerns
-entirely (a dashboard integration, a scheduled job, aggregation over a time window). Building both
-fully -- correct entitlement law for four countries, real idempotency, a real (if credential-gated)
-vendor integration for each, actual end-to-end tests -- was judged more useful to evaluate than a
-thinner pass across four or five workflows.
+- **Ports & adapters applied consistently, not once for show** -- the same env-driven real/mock
+  pattern across all three external dependencies (HRIS, dashboard, LLM), every vendor integration
+  either live-verified against a real account or honestly flagged as not.
+- **Domain logic kept out of the LLM's hands** -- every number a model or a vendor could get wrong
+  (leave balance, working days, gratuity, tenure) is computed by typed, tested, pure functions, never
+  estimated or inline in a tool.
+- **Real multi-country labor law, not a stub** -- four countries' annual/sick leave entitlement
+  tiers and UAE gratuity calculations, sourced and cited, with several live-verification findings
+  that corrected an initial wrong assumption (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+- **A live-verification habit, not a one-time check** -- BambooHR, Google Sheets, and Gemini were
+  each exercised against a real account, not just mocked in tests; that process caught real bugs (an
+  unbounded date query, an undocumented API contract requirement, inconsistent LLM tool-routing) that
+  fixture-only testing couldn't have.
+
+## Why these two workflows
+
+This started from a brief listing several candidate workflows. Rather than a thin pass across four or
+five of them, two were picked and built completely: leave management (balance, preview, submit,
+approve, escalation) and daily check-ins/team performance (check-in, missing-check-in detection,
+weekly summary). Together they exercise two genuinely different classes of problem: leave management
+is a stateful, money-adjacent approval workflow (entitlement math, signed two-phase writes,
+server-side authorization), while check-ins are high-frequency, low-stakes, and exercise different
+concerns entirely (a dashboard integration, a scheduled job, aggregation over a time window). Correct
+entitlement law for four countries, real idempotency, a real (if credential-gated) vendor integration
+for each, and actual end-to-end tests -- that depth was the point, not breadth.
 
 ## Architecture
 
@@ -81,7 +96,7 @@ flagged as unverified -- never assumed correct and left ambiguous.
 The in-memory/mock defaults are not placeholders waiting to be replaced -- they're what `make test`,
 `make demo`, and the end-to-end tests run against, deliberately, so the whole system is provably
 correct without needing anyone's credentials. `docs/ROADMAP.md` has the full, dated account of every
-gap, deviation from the brief, and law/library fact that was checked live rather than assumed --
+gap, deviation from the original plan, and law/library fact that was checked live rather than assumed --
 including several occasions where checking caught something a summary or training-data recall would
 have gotten wrong (a leave-law percentage, a date-conversion constant, a "current law" assumption
 that turned out to describe a repealed one).
